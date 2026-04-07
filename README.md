@@ -42,14 +42,13 @@ O projeto foi desenvolvido seguindo boas práticas de desenvolvimento e atende a
 ## Documentação (Swagger): https://apigames-kpkn.onrender.com/swagger-ui/index.html
 
 ## Estrutura do Projeto
-controllers      → endpoints da API
-entities         → entidades (tabelas)
-repositories     → acesso ao banco (JPA)
-exceptions       → tratamento de erros
-infrastructure   → configurações
+* **controllers**      → endpoints da API
+* **entities**         → entidades (tabelas)
+* **repositories**     → acesso ao banco (JPA)
+* **exceptions**       → tratamento de erros
+* **infrastructure**   → configurações
 
 ## Entidades
-
 - Game
 - Category
 - Platform
@@ -57,19 +56,17 @@ infrastructure   → configurações
 - Review
 
 ## Relacionamentos
-
 - One-to-Many → Category → Game  
 - Many-to-Many → Game ↔ Platform  
 - One-to-One → User ↔ Review  
 
 ## Enum
-
 A entidade Category utiliza ENUM:
 
 - RPG  
 - ACTION  
 - ADVENTURE
-- 
+  
 ## Funcionalidades
 
 - CRUD completo
