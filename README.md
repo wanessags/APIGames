@@ -117,5 +117,6 @@ A entidade Category utiliza ENUM:
 * ✔ **POST** `/reviews`
 * ✔ **PUT** `/reviews/{id}`
 * ✔ **DELETE** `/reviews/{id}`
+* ✔ **GET** `/reviews/search?score=…` 
 * ✔ **GET** `/reviews/search?score=...`
 ✔ GET    /reviews/search?score=…
