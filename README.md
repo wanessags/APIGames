@@ -1,13 +1,19 @@
 # 🎮 API Games - Spring Boot RESTful
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Java-17+-blue?style=for-the-badge"/>
-  <img src="https://img.shields.io/badge/Spring%20Boot-API-green?style=for-the-badge"/>
-  <img src="https://img.shields.io/badge/Status-Online-success?style=for-the-badge"/>
-  <img src="https://img.shields.io/badge/Deploy-Render-purple?style=for-the-badge"/>
+  <a href="https://apigames-kpkn.onrender.com/" target="_blank">
+    <img src="https://img.shields.io/badge/Java_17+-ED8B00?style=for-the-badge&logo=java&logoColor=white"/>
+  </a>
+  <a href="https://apigames-kpkn.onrender.com/" target="_blank">
+    <img src="https://img.shields.io/badge/Spring_Boot-6DB33F?style=for-the-badge&logo=spring-boot&logoColor=white"/>
+  </a>
+  <a href="https://apigames-kpkn.onrender.com/" target="_blank">
+    <img src="https://img.shields.io/badge/Status-Online-10B981?style=for-the-badge&logo=uptime-robot&logoColor=white"/>
+  </a>
+  <a href="https://apigames-kpkn.onrender.com/" target="_blank">
+    <img src="https://img.shields.io/badge/Render-46E3B7?style=for-the-badge&logo=render&logoColor=white"/>
+  </a>
 </p>
-
----
 
 ## Descrição
 
@@ -102,53 +108,53 @@ A entidade Category utiliza enum:
 ## Endpoints
 
 ### Games
-GET    /games
-GET    /games/{id}
-POST   /games
-PUT    /games/{id}
-DELETE /games/{id}
-GET    /games/search?name=…
+✔ GET    /games
+✔ GET    /games/{id}
+✔ POST   /games
+✔ PUT    /games/{id}
+✔ DELETE /games/{id}
+✔ GET    /games/search?name=…
 
 ---
 
 ### Categories
 
-GET    /categories
-GET    /categories/{id}
-POST   /categories
-PUT    /categories/{id}
-DELETE /categories/{id}
-GET    /categories/search?type=…
+✔ GET    /categories
+✔ GET    /categories/{id}
+✔ POST   /categories
+✔ PUT    /categories/{id}
+✔ DELETE /categories/{id}
+✔ GET    /categories/search?type=…
 
 ---
 
 ### Platforms
 
-GET    /platforms
-GET    /platforms/{id}
-POST   /platforms
-PUT    /platforms/{id}
-DELETE /platforms/{id}
-GET    /platforms/search?name=…
+✔ GET    /platforms
+✔ GET    /platforms/{id}
+✔ POST   /platforms
+✔ PUT    /platforms/{id}
+✔ DELETE /platforms/{id}
+✔ GET    /platforms/search?name=…
 
 ---
 
 ### Users
 
-GET    /users
-GET    /users/{id}
-POST   /users
-PUT    /users/{id}
-DELETE /users/{id}
-GET    /users/search?email=…
+✔ GET    /users
+✔ GET    /users/{id}
+✔ POST   /users
+✔ PUT    /users/{id}
+✔ DELETE /users/{id}
+✔ GET    /users/search?email=…
 
 ---
 
 ### Reviews
 
-GET    /reviews
-GET    /reviews/{id}
-POST   /reviews
-PUT    /reviews/{id}
-DELETE /reviews/{id}
-GET    /reviews/search?score=…
+✔ GET    /reviews
+✔ GET    /reviews/{id}
+✔ POST   /reviews
+✔ PUT    /reviews/{id}
+✔ DELETE /reviews/{id}
+✔ GET    /reviews/search?score=…
