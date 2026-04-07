@@ -16,9 +16,7 @@
 </p>
 
 ## Descrição
-
 Esta aplicação consiste em uma **API RESTful** desenvolvida com **Spring Boot**, com o objetivo de gerenciar jogos, categorias, plataformas, usuários e avaliações.
-
 O projeto foi desenvolvido seguindo boas práticas de desenvolvimento e atende aos requisitos acadêmicos, incluindo:
 
 ✔ CRUD completo  
@@ -29,7 +27,6 @@ O projeto foi desenvolvido seguindo boas práticas de desenvolvimento e atende a
 ✔ Deploy em produção  
 
 ## Tecnologias Utilizadas
-
 - Java 17+
 - Spring Boot
 - Maven
@@ -40,12 +37,9 @@ O projeto foi desenvolvido seguindo boas práticas de desenvolvimento e atende a
 - Docker
 - Render (Deploy)
 
-## API Online
+## API Online: Acesse a API: https://apigames-kpkn.onrender.com
 
-Acesse a API: https://apigames-kpkn.onrender.com
-
-## Documentação (Swagger):
-https://apigames-kpkn.onrender.com/swagger-ui/index.html
+## Documentação (Swagger): https://apigames-kpkn.onrender.com/swagger-ui/index.html
 
 ## Estrutura do Projeto
 controllers      → endpoints da API
@@ -70,7 +64,7 @@ infrastructure   → configurações
 
 ## Enum
 
-A entidade Category utiliza enum:
+A entidade Category utiliza ENUM:
 
 - RPG  
 - ACTION  
