@@ -28,8 +28,6 @@ O projeto foi desenvolvido seguindo boas práticas de desenvolvimento e atende a
 ✔ Documentação com Swagger  
 ✔ Deploy em produção  
 
----
-
 ## Tecnologias Utilizadas
 
 - Java 17+
@@ -42,19 +40,12 @@ O projeto foi desenvolvido seguindo boas práticas de desenvolvimento e atende a
 - Docker
 - Render (Deploy)
 
----
-
 ## API Online
 
 Acesse a API: https://apigames-kpkn.onrender.com
 
-
----
-
 ## Documentação (Swagger):
 https://apigames-kpkn.onrender.com/swagger-ui/index.html
-
----
 
 ## Estrutura do Projeto
 controllers      → endpoints da API
@@ -62,8 +53,6 @@ entities         → entidades (tabelas)
 repositories     → acesso ao banco (JPA)
 exceptions       → tratamento de erros
 infrastructure   → configurações
-
----
 
 ## Entidades
 
@@ -73,15 +62,11 @@ infrastructure   → configurações
 - User
 - Review
 
----
-
 ## Relacionamentos
 
 - One-to-Many → Category → Game  
 - Many-to-Many → Game ↔ Platform  
 - One-to-One → User ↔ Review  
-
----
 
 ## Enum
 
@@ -89,10 +74,8 @@ A entidade Category utiliza enum:
 
 - RPG  
 - ACTION  
-- ADVENTURE  
-
----
-
+- ADVENTURE
+- 
 ## Funcionalidades
 
 - CRUD completo
@@ -103,58 +86,45 @@ A entidade Category utiliza enum:
 - HATEOAS
 - Swagger
 
----
-
 ## Endpoints
 
 ### Games
-✔ GET    /games
-✔ GET    /games/{id}
-✔ POST   /games
-✔ PUT    /games/{id}
-✔ DELETE /games/{id}
-✔ GET    /games/search?name=…
-
----
+* ✔ **GET** `/games`
+* ✔ **GET** `/games/{id}`
+* ✔ **POST** `/games`
+* ✔ **PUT** `/games/{id}`
+* ✔ **DELETE** `/games/{id}`
+* ✔ **GET** `/games/search?name=...`
 
 ### Categories
-
-✔ GET    /categories
-✔ GET    /categories/{id}
-✔ POST   /categories
-✔ PUT    /categories/{id}
-✔ DELETE /categories/{id}
-✔ GET    /categories/search?type=…
-
----
+* ✔ **GET** `/categories`
+* ✔ **GET** `/categories/{id}`
+* ✔ **POST** `/categories`
+* ✔ **PUT** `/categories/{id}`
+* ✔ **DELETE** `/categories/{id}`
+* ✔ **GET** `/categories/search?type=...`
 
 ### Platforms
-
-✔ GET    /platforms
-✔ GET    /platforms/{id}
-✔ POST   /platforms
-✔ PUT    /platforms/{id}
-✔ DELETE /platforms/{id}
-✔ GET    /platforms/search?name=…
-
----
-
+* ✔ **GET** `/platforms`
+* ✔ **GET** `/platforms/{id}`
+* ✔ **POST** `/platforms`
+* ✔ **PUT** `/platforms/{id}`
+* ✔ **DELETE** `/platforms/{id}`
+* ✔ **GET** `/platforms/search?name=...`
+  
 ### Users
-
-✔ GET    /users
-✔ GET    /users/{id}
-✔ POST   /users
-✔ PUT    /users/{id}
-✔ DELETE /users/{id}
-✔ GET    /users/search?email=…
-
----
-
+* ✔ **GET** `/users`
+* ✔ **GET** `/users/{id}`
+* ✔ **POST** `/users`
+* ✔ **PUT** `/users/{id}`
+* ✔ **DELETE** `/users/{id}`
+* ✔ **GET** `/users/search?email=...`
+  
 ### Reviews
-
-✔ GET    /reviews
-✔ GET    /reviews/{id}
-✔ POST   /reviews
-✔ PUT    /reviews/{id}
-✔ DELETE /reviews/{id}
+* ✔ **GET** `/reviews`
+* ✔ **GET** `/reviews/{id}`
+* ✔ **POST** `/reviews`
+* ✔ **PUT** `/reviews/{id}`
+* ✔ **DELETE** `/reviews/{id}`
+* ✔ **GET** `/reviews/search?score=...`
 ✔ GET    /reviews/search?score=…
