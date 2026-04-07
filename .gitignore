@@ -1,33 +1,56 @@
-HELP.md
+############################
+# BUILD (MUITO IMPORTANTE)
+############################
 target/
-.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+build/
+out/
+.gradle/
 
-### STS ###
-.apt_generated
-.classpath
-.factorypath
+############################
+# JAVA / SPRING
+############################
+*.class
+*.log
+*.jar
+*.war
+
+############################
+# MAVEN / WRAPPER
+############################
+.mvn/wrapper/maven-wrapper.jar
+
+############################
+# IDEs
+############################
+
+# IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# VS Code
+.vscode/
+
+# Eclipse
 .project
-.settings
+.classpath
+.settings/
 .springBeans
 .sts4-cache
 
-### IntelliJ IDEA ###
-.idea
-*.iws
-*.iml
-*.ipr
+############################
+# SISTEMA
+############################
+.DS_Store
+Thumbs.db
 
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
+############################
+# AMBIENTE
+############################
+.env
 
-### VS Code ###
-.vscode/
+############################
+# LOGS
+############################
+logs/
