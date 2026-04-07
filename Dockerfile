@@ -17,7 +17,7 @@ RUN ./mvnw -DskipTests clean package
 
 
 # ---------- Runtime stage ----------
-FROM eclipse-temurin:25-jre
+FROM eclipse-temurin:17-jre
 WORKDIR /app
 
 COPY --from=build /app/target/*.jar app.jar
