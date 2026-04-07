@@ -11,8 +11,6 @@
         <version>4.0.3</version>
         <relativePath/>
     </parent>
-    <!-- O parent do Spring Boot centraliza versões compatíveis e simplifica a configuração do projeto. -->
-
     <groupId>senac.tsi</groupId>
     <artifactId>games</artifactId>
     <version>0.0.1-SNAPSHOT</version>
@@ -22,15 +20,11 @@
     <properties>
         <java.version>21</java.version>
     </properties>
-    <!-- Aqui ficam propriedades globais, como a versão do Java usada para compilar o projeto. -->
-
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-h2console</artifactId>
         </dependency>
-        <!-- Dependência que habilita o console web do H2, útil para visualizar as tabelas em memória durante os testes. -->
-
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
@@ -40,41 +34,37 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
-        <!-- Starter do JPA: traz Hibernate, integração com repositories e toda a camada ORM. -->
-
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
-        <!-- Starter web: permite criar controllers REST, receber requisições HTTP e devolver respostas JSON. -->
-
-
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-hateoas</artifactId>
         </dependency>
-        <!-- Starter HATEOAS: adiciona suporte a EntityModel, PagedModel e links navegáveis nas respostas da API. -->
-
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>3.0.2</version>
         </dependency>
-        <!-- Dependência do Swagger/OpenAPI: gera a documentação navegável da API no navegador. -->
-
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
-        <!-- Banco H2 em memória: facilita testes e demonstrações sem precisar instalar um banco externo. -->
-
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
     </dependencies>
-    <!-- Lombok está presente no projeto, embora a maior parte do código use getters e setters escritos manualmente. -->
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
 
 </project>
