@@ -50,7 +50,7 @@ import org.springframework.context.annotation.Configuration;
                 license = @License(name = "Uso acadêmico")
         ),
         servers = {
-                @Server(url = "http://localhost:8080", description = "Ambiente local")
+                @Server(url = "https://apigames-kpkn.onrender.com", description = "Render")
         },
         tags = {
                 @Tag(
