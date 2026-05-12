@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -86,10 +87,42 @@ public class ApiKeyController {
     ) {
     }
 
+    public record LoginRequest(
+            @NotBlank @Email String email,
+            @Size(max = 80) String label
+    ) {
+    }
+
     private record CreateApiKeyFingerprint(String label, ApiKeyRole role, Long userId) {
     }
 
     private record IdempotentCreateResponse(CreateApiKeyFingerprint requestFingerprint, ApiKey apiKey, URI location) {
+    }
+
+    @Operation(summary = "Login e geração de chave", description = "Gera uma chave aleatória para um usuário existente a partir do email. Use o keyValue retornado no botão Authorize do Swagger. Este endpoint é público para facilitar os testes acadêmicos.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "Login realizado e chave criada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiKey.class), examples = @ExampleObject(value = """
+                    {
+                      "email": "wanessa@email.com",
+                      "label": "Swagger"
+                    }"""))),
+            @ApiResponse(responseCode = "400", description = "Email inválido ou ausente"),
+            @ApiResponse(responseCode = "404", description = "Usuário não encontrado"),
+            @ApiResponse(responseCode = "429", description = "Limite de requisições excedido")
+    })
+    @PostMapping("/auth/login")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ResponseEntity<EntityModel<ApiKey>> login(@Valid @RequestBody LoginRequest request) {
+        User user = userRepository.findByEmailIgnoreCase(request.email())
+                .orElseThrow(() -> new UserNotFoundException(request.email()));
+        String label = request.label() == null || request.label().isBlank() ? "Login Swagger" : request.label();
+        ApiKey apiKey = apiKeyRepository.save(new ApiKey(
+                label,
+                "games_" + UUID.randomUUID(),
+                ApiKeyRole.WRITE,
+                user));
+        URI location = URI.create("/api-keys/" + apiKey.getId());
+        return ResponseEntity.created(location).body(toModel(apiKey));
     }
 
     @Operation(summary = "Listar chaves de API", description = "Retorna chaves de API paginadas. Endpoint administrativo usado para gerenciar autenticação da API. Requer X-API-Key com nível ADMIN.", security = @SecurityRequirement(name = "ApiKeyAuth"))

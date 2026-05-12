@@ -61,12 +61,13 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         if (blocked) {
             response.setHeader("Retry-After", String.valueOf(retryAfterSeconds));
             response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
-            response.setContentType("application/json");
+            response.setCharacterEncoding("UTF-8");
+            response.setContentType("application/json;charset=UTF-8");
             response.getWriter().write(String.format("""
                     {
                       "status": 429,
                       "error": "Too Many Requests",
-                      "message": "Limite de %d requisicoes por minuto excedido. Tente novamente em %d segundos.",
+                      "message": "Limite de %d requisições por minuto excedido. Tente novamente em %d segundos.",
                       "retryAfter": %d
                     }
                     """, MAX_REQUESTS, retryAfterSeconds, retryAfterSeconds));
@@ -94,6 +95,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         }
 
         return !(path.startsWith("/games")
+                || path.startsWith("/auth")
                 || path.startsWith("/categories")
                 || path.startsWith("/platforms")
                 || path.startsWith("/reviews")

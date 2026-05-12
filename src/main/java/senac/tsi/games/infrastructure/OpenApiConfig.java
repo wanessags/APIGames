@@ -10,7 +10,19 @@ import io.swagger.v3.oas.annotations.info.License;
 import io.swagger.v3.oas.annotations.security.SecurityScheme;
 import io.swagger.v3.oas.annotations.servers.Server;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.models.headers.Header;
+import io.swagger.v3.oas.models.media.Content;
+import io.swagger.v3.oas.models.media.IntegerSchema;
+import io.swagger.v3.oas.models.media.MediaType;
+import io.swagger.v3.oas.models.media.Schema;
+import io.swagger.v3.oas.models.responses.ApiResponse;
+import io.swagger.v3.oas.models.Operation;
+import io.swagger.v3.oas.models.PathItem;
+import org.springdoc.core.customizers.OpenApiCustomizer;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.Map;
 
 @Configuration
 @SecurityScheme(
@@ -34,14 +46,16 @@ import org.springframework.context.annotation.Configuration;
                         - HATEOAS com links self, update, delete e navegação entre recursos relacionados.
                         - Validação com Bean Validation e tratamento global de erros.
                         - Autenticação por X-API-Key para operações sensíveis, com níveis READ, WRITE e ADMIN.
+                        - Login acadêmico em POST /auth/login para gerar uma chave aleatória por email.
                         - Idempotência em POST por X-Idempotency-Key.
                         - Rate limiting: 8 requisições por minuto; ao exceder, retorna 429 e bloqueia por 60 segundos.
                         - Versionamento demonstrado em GET /games/{id}/summary usando X-API-Version.
 
                         Fluxo recomendado para testar:
-                        1. Clique em Authorize e use a chave games-demo-key, que possui permissão ADMIN.
-                        2. Para POST, envie também X-Idempotency-Key com um valor único.
-                        3. Consulte os links HATEOAS retornados para navegar entre recursos.
+                        1. Use POST /auth/login com o email wanessa@email.com para gerar uma chave aleatória.
+                        2. Clique em Authorize e informe o keyValue retornado, ou use games-demo-key para testes administrativos.
+                        3. Para POST, envie também X-Idempotency-Key com um valor único.
+                        4. Consulte os links HATEOAS retornados para navegar entre recursos.
                         """,
                 contact = @Contact(
                         name = "Wanessa Gonçalves",
@@ -73,7 +87,7 @@ import org.springframework.context.annotation.Configuration;
                         description = "Usuários da API. Um User pode escrever várias Reviews e possuir várias ApiKeys (One-to-Many)."),
                 @Tag(
                         name = "API Keys",
-                        description = "CRUD e gerenciamento de chaves de API. Endpoints de chaves exigem X-API-Key com nível ADMIN e X-Idempotency-Key em operações POST.")
+                        description = "Login, CRUD e gerenciamento de chaves de API. Use POST /auth/login para gerar uma chave aleatória. Endpoints administrativos de chaves exigem X-API-Key com nível ADMIN e X-Idempotency-Key em operações POST.")
         },
         externalDocs = @ExternalDocumentation(
                 description = "Swagger UI",
@@ -81,4 +95,83 @@ import org.springframework.context.annotation.Configuration;
         )
 )
 public class OpenApiConfig {
+
+    @Bean
+    OpenApiCustomizer defaultResponsesCustomizer() {
+        return openApi -> openApi.getPaths().forEach((path, pathItem) ->
+                pathItem.readOperationsMap().forEach((method, operation) -> {
+                    addSuccessResponseIfMissing(method, operation);
+                    addErrorResponseIfMissing(operation, "400", "Requisição inválida. Dados, parâmetros ou headers obrigatórios não foram enviados corretamente.");
+                    addNotFoundIfNeeded(path, operation);
+                    addConflictIfNeeded(method, operation);
+                    addSecurityErrorsIfNeeded(operation);
+                    addRateLimitIfMissing(operation);
+                }));
+    }
+
+    private void addSuccessResponseIfMissing(PathItem.HttpMethod method, Operation operation) {
+        if (method == PathItem.HttpMethod.GET || method == PathItem.HttpMethod.PUT) {
+            addResponseIfMissing(operation, "200", "Operação realizada com sucesso.");
+        }
+        if (method == PathItem.HttpMethod.POST) {
+            addResponseIfMissing(operation, "201", "Recurso criado com sucesso.");
+        }
+        if (method == PathItem.HttpMethod.DELETE) {
+            addResponseIfMissing(operation, "204", "Recurso removido ou revogado com sucesso.");
+        }
+    }
+
+    private void addNotFoundIfNeeded(String path, Operation operation) {
+        if (path.contains("{")) {
+            addErrorResponseIfMissing(operation, "404", "Recurso não encontrado para o identificador informado.");
+        }
+    }
+
+    private void addConflictIfNeeded(PathItem.HttpMethod method, Operation operation) {
+        if (method == PathItem.HttpMethod.POST || method == PathItem.HttpMethod.PUT || method == PathItem.HttpMethod.DELETE) {
+            addErrorResponseIfMissing(operation, "409", "Conflito ao processar a operação. Pode ocorrer por chave idempotente reutilizada com payload diferente ou violação de integridade.");
+        }
+    }
+
+    private void addSecurityErrorsIfNeeded(Operation operation) {
+        boolean protectedEndpoint = operation.getSecurity() != null && !operation.getSecurity().isEmpty();
+        if (protectedEndpoint) {
+            addErrorResponseIfMissing(operation, "401", "Não autorizado. Header X-API-Key ausente.");
+            addErrorResponseIfMissing(operation, "403", "Acesso negado. X-API-Key inválida, inativa ou sem permissão para esta operação.");
+        }
+    }
+
+    private void addRateLimitIfMissing(Operation operation) {
+        if (!operation.getResponses().containsKey("429")) {
+            operation.getResponses().addApiResponse("429", new ApiResponse()
+                    .description("Muitas requisições. O limite de 8 requisições por minuto foi excedido; aguarde 60 segundos para tentar novamente.")
+                    .addHeaderObject("Retry-After", new Header()
+                            .description("Quantidade de segundos que o cliente deve aguardar antes de tentar novamente.")
+                            .schema(new IntegerSchema().example(60)))
+                    .addHeaderObject("X-RateLimit-Limit", new Header()
+                            .description("Limite máximo de requisições por minuto.")
+                            .schema(new IntegerSchema().example(8)))
+                    .addHeaderObject("X-RateLimit-Remaining", new Header()
+                            .description("Quantidade de requisições restantes na janela atual.")
+                            .schema(new IntegerSchema().example(0)))
+                    .content(new Content().addMediaType("application/json", new MediaType()
+                            .schema(new Schema<Map<String, Object>>()
+                                    .type("object")
+                                    .example(Map.of(
+                                            "status", 429,
+                                            "error", "Too Many Requests",
+                                            "message", "Limite de 8 requisições por minuto excedido. Tente novamente em 60 segundos.",
+                                            "retryAfter", 60))))));
+        }
+    }
+
+    private void addErrorResponseIfMissing(Operation operation, String code, String description) {
+        addResponseIfMissing(operation, code, description);
+    }
+
+    private void addResponseIfMissing(Operation operation, String code, String description) {
+        if (!operation.getResponses().containsKey(code)) {
+            operation.getResponses().addApiResponse(code, new ApiResponse().description(description));
+        }
+    }
 }
