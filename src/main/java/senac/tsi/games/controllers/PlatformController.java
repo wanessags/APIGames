@@ -1,12 +1,15 @@
 package senac.tsi.games.controllers;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,20 +25,25 @@ import senac.tsi.games.exceptions.PlatformNotFoundException;
 import senac.tsi.games.repositories.PlatformRepository;
 
 import java.net.URI;
-import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.*;
 
-// @Tag agrupa e organiza os endpoints no Swagger, facilitando a leitura da documentação.
-@Tag(name = "platforms", description = "Platforms route")
+@Tag(name = "Platforms", description = "Plataformas em que jogos podem ser publicados. Relação: Platform <-> Game (Many-to-Many). Exemplos: PC, PlayStation 5 e Xbox Series X.")
 @RestController
-// A classe PlatformController expõe os endpoints HTTP dessa entidade e organiza o comportamento REST da API.
 public class PlatformController {
 
     private final PlatformRepository platformRepository;
     private final PagedResourcesAssembler<Platform> pagedAssembler;
 
-    // @Autowired aqui reforça que o Spring deve fornecer automaticamente as dependências no construtor.
+    // Idempotency storage
+    private final Map<String, IdempotentCreateResponse> createPlatformResponses = new ConcurrentHashMap<>();
+    private final Object createPlatformIdempotencyLock = new Object();
+
+    private record CreatePlatformFingerprint(String name) {}
+    private record IdempotentCreateResponse(CreatePlatformFingerprint requestFingerprint, Platform platform, URI location) {}
+
     @Autowired
     public PlatformController(PlatformRepository platformRepository,
                               PagedResourcesAssembler<Platform> pagedAssembler) {
@@ -43,184 +51,138 @@ public class PlatformController {
         this.pagedAssembler = pagedAssembler;
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Get all platforms", description = "Get all platforms with pagination and HATEOAS links")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
+    @Operation(summary = "Listar plataformas", description = "Retorna plataformas paginadas. Cada plataforma pode estar associada a vários jogos, e cada jogo pode estar em várias plataformas.")
     @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "200", description = "Platforms found successfully")
+            @ApiResponse(responseCode = "200", description = "Lista retornada com sucesso", content = @Content(mediaType = "application/json")),
+            @ApiResponse(responseCode = "400", description = "Parâmetros de paginação inválidos", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Parâmetros de paginação inválidos\"")))
     })
-// @GetMapping marca um endpoint de leitura, usado para listar recursos ou buscar um item específico.
     @GetMapping("/platforms")
-// O status 200 indica que a requisição foi processada com sucesso.
     @ResponseStatus(HttpStatus.OK)
-// Este método atende uma operação de leitura e devolve dados de PlatformController pela API.
-// Aqui a resposta usa paginação e HATEOAS ao mesmo tempo: por isso o retorno é mais rico do que uma simples List.
     public ResponseEntity<PagedModel<EntityModel<Platform>>> getPlatforms(@ParameterObject Pageable pageable) {
-
         var page = platformRepository.findAll(pageable);
-
-// O pagedAssembler transforma a página retornada pelo JPA em um modelo HATEOAS paginado, com links embutidos.
-        PagedModel<EntityModel<Platform>> model = pagedAssembler.toModel(
-                page,
-// EntityModel.of envolve o objeto principal e adiciona links de navegação, como self, update e delete.
+        PagedModel<EntityModel<Platform>> model = pagedAssembler.toModel(page,
                 platform -> EntityModel.of(platform,
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                         linkTo(methodOn(PlatformController.class).getPlatformById(platform.getId())).withSelfRel(),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                         linkTo(methodOn(PlatformController.class).getPlatforms(pageable)).withRel("platforms"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                         linkTo(methodOn(PlatformController.class).updatePlatform(platform.getId(), null)).withRel("update"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
-                        linkTo(methodOn(PlatformController.class).deletePlatform(platform.getId())).withRel("delete"))
-        );
-
-// ResponseEntity.ok devolve 200 quando a operação termina normalmente e o conteúdo pode ser enviado no corpo.
+                        linkTo(methodOn(PlatformController.class).deletePlatform(platform.getId())).withRel("delete")));
         return ResponseEntity.ok(model);
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Get platform by id", description = "Get one platform by id with HATEOAS links")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
+    @Operation(summary = "Buscar plataforma por ID", description = "Retorna uma plataforma específica e seus links HATEOAS. A relação com Game e Many-to-Many.")
     @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "200", description = "Platform found",
-                    content = { @Content(mediaType = "application/json",
-                            schema = @Schema(implementation = Platform.class)) }),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "400", description = "Invalid id supplied"),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "404", description = "Platform not found")
+            @ApiResponse(responseCode = "200", description = "Plataforma encontrada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Platform.class))),
+            @ApiResponse(responseCode = "400", description = "ID inválido informado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"ID inválido informado\""))),
+            @ApiResponse(responseCode = "404", description = "Plataforma não encontrada", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find platform 1\"")))
     })
-// @GetMapping marca um endpoint de leitura, usado para listar recursos ou buscar um item específico.
     @GetMapping("/platforms/{id}")
-// Este método atende uma operação de leitura e devolve dados de PlatformController pela API.
     public EntityModel<Platform> getPlatformById(
-            @PathVariable(name = "id", required = true)
-            @NotNull Long id) {
-
-// Primeiro a API tenta localizar o recurso pelo id; se não encontrar, lança a exceção personalizada da entidade.
+            @Parameter(description = "ID da plataforma", example = "1", required = true)
+            @PathVariable(name = "id") @NotNull Long id) {
         Platform platform = platformRepository.findById(id)
-// orElseThrow evita retornar null silenciosamente e garante a resposta 404 quando o recurso não existe.
                 .orElseThrow(() -> new PlatformNotFoundException(id));
-
-// EntityModel.of envolve o objeto principal e adiciona links de navegação, como self, update e delete.
         return EntityModel.of(platform,
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(PlatformController.class).getPlatformById(id)).withSelfRel(),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(PlatformController.class).getPlatforms(Pageable.unpaged())).withRel("platforms"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(PlatformController.class).updatePlatform(id, null)).withRel("update"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(PlatformController.class).deletePlatform(id)).withRel("delete"));
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Search platforms by name", description = "Search platforms filtering by name")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
+    @Operation(summary = "Buscar plataformas por nome", description = "Consulta personalizada paginada por nome da plataforma, com busca parcial e sem diferenciar maiúsculas/minúsculas.")
     @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "200", description = "Search executed successfully")
+            @ApiResponse(responseCode = "200", description = "Busca realizada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Platform.class))),
+            @ApiResponse(responseCode = "400", description = "Parâmetro de busca inválido", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Parâmetro de busca inválido\"")))
     })
-// @GetMapping marca um endpoint de leitura, usado para listar recursos ou buscar um item específico.
     @GetMapping("/platforms/search")
-// O status 200 indica que a requisição foi processada com sucesso.
     @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<List<Platform>> searchPlatformsByName(@RequestParam String name) {
-// ResponseEntity.ok devolve 200 quando a operação termina normalmente e o conteúdo pode ser enviado no corpo.
-        return ResponseEntity.ok(platformRepository.findByNameContainingIgnoreCase(name));
+    public ResponseEntity<PagedModel<EntityModel<Platform>>> searchPlatformsByName(
+            @Parameter(description = "Nome da plataforma (busca parcial)", example = "Play", required = true)
+            @RequestParam String name,
+            @ParameterObject Pageable pageable) {
+        var page = platformRepository.findByNameContainingIgnoreCase(name, pageable);
+        return ResponseEntity.ok(pagedAssembler.toModel(page,
+                platform -> EntityModel.of(platform,
+                        linkTo(methodOn(PlatformController.class).getPlatformById(platform.getId())).withSelfRel(),
+                        linkTo(methodOn(PlatformController.class).updatePlatform(platform.getId(), null)).withRel("update"),
+                        linkTo(methodOn(PlatformController.class).deletePlatform(platform.getId())).withRel("delete"))));
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Create platform", description = "Create a new platform")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
+    @Operation(summary = "Criar plataforma", description = "Cria uma plataforma que poderá ser vinculada a jogos no relacionamento Many-to-Many. Requer X-API-Key e X-Idempotency-Key.", security = @SecurityRequirement(name = "ApiKeyAuth"))
     @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "201", description = "Platform created successfully",
-                    content = { @Content(mediaType = "application/json",
-                            schema = @Schema(implementation = Platform.class),
-                            examples = @ExampleObject(value = """
-                                    {
-                                      "name": "PC"
-                                    }
-                                    """)) }),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "400", description = "Invalid input provided")
+            @ApiResponse(responseCode = "201", description = "Plataforma criada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Platform.class))),
+            @ApiResponse(responseCode = "400", description = "X-Idempotency-Key ausente ou em branco", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"X-Idempotency-Key header é obrigatório\""))),
+            @ApiResponse(responseCode = "409", description = "Mesma X-Idempotency-Key usada com payload diferente", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"X-Idempotency-Key já utilizada com payload diferente\"")))
     })
-// @PostMapping marca um endpoint de criação, usado quando queremos inserir um novo recurso.
     @PostMapping("/platforms")
-// O status 201 indica que um novo recurso foi criado com sucesso.
     @ResponseStatus(HttpStatus.CREATED)
-    public ResponseEntity<Platform> createPlatform(@RequestBody Platform newPlatform) {
-        Platform savedPlatform = platformRepository.save(newPlatform);
+    public ResponseEntity<Platform> createPlatform(
+            @Parameter(description = "Chave única para garantir idempotência", required = true)
+            @RequestHeader("X-Idempotency-Key") String idempotencyKey,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Dados da plataforma a ser criada", required = true,
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = "{ \"name\": \"PlayStation 5\" }")))
+            @Valid @RequestBody Platform newPlatform) {
 
-// ResponseEntity.created devolve o status 201 e ainda informa a URI do recurso recém-criado.
-        return ResponseEntity.created(
-                        URI.create("/platforms/" + savedPlatform.getId()))
-                .body(savedPlatform);
-    }
-
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Update platform", description = "Update an existing platform")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-    @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "200", description = "Platform updated successfully"),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "201", description = "Platform created successfully"),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "400", description = "Invalid input provided")
-    })
-// @PutMapping marca um endpoint de atualização, normalmente usado para alterar um recurso já existente.
-    @PutMapping("/platforms/{id}")
-    public ResponseEntity<Platform> updatePlatform(@PathVariable Long id,
-                                                   @RequestBody Platform updatedPlatform) {
-
-// Primeiro a API tenta localizar o recurso pelo id; se não encontrar, lança a exceção personalizada da entidade.
-        return platformRepository.findById(id).map(
-                platform -> {
-                    platform.setName(updatedPlatform.getName());
-// ResponseEntity.ok devolve 200 quando a operação termina normalmente e o conteúdo pode ser enviado no corpo.
-                    return ResponseEntity.ok(platformRepository.save(platform));
-                }
-        ).orElseGet(() -> {
-            Platform savedPlatform = platformRepository.save(updatedPlatform);
-// ResponseEntity.created devolve o status 201 e ainda informa a URI do recurso recém-criado.
-            return ResponseEntity.created(
-                            URI.create("/platforms/" + savedPlatform.getId()))
-                    .body(savedPlatform);
-        });
-    }
-
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Delete platform", description = "Delete a platform by id")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-    @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "204", description = "Platform deleted successfully"),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "404", description = "Platform not found")
-    })
-// @DeleteMapping marca um endpoint de remoção de recurso.
-    @DeleteMapping("/platforms/{id}")
-    public ResponseEntity<Void> deletePlatform(@PathVariable Long id) {
-// Primeiro a API tenta localizar o recurso pelo id; se não encontrar, lança a exceção personalizada da entidade.
-        var platform = platformRepository.findById(id).orElse(null);
-
-        if (platform == null) {
-// notFound devolve 404 sem corpo quando o recurso pedido para remoção não existe.
-            return ResponseEntity.notFound().build();
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return ResponseEntity.badRequest().build();
         }
 
+        var requestFingerprint = new CreatePlatformFingerprint(newPlatform.getName());
+
+        synchronized (createPlatformIdempotencyLock) {
+            var existing = createPlatformResponses.get(idempotencyKey);
+
+            if (existing != null) {
+                if (existing.requestFingerprint().equals(requestFingerprint)) {
+                    return ResponseEntity.created(existing.location()).body(existing.platform());
+                } else {
+                    return ResponseEntity.status(HttpStatus.CONFLICT).build();
+                }
+            }
+
+            var saved = platformRepository.save(newPlatform);
+            var location = URI.create("/platforms/" + saved.getId());
+            createPlatformResponses.put(idempotencyKey, new IdempotentCreateResponse(requestFingerprint, saved, location));
+            return ResponseEntity.created(location).body(saved);
+        }
+    }
+
+    @Operation(summary = "Atualizar plataforma", description = "Atualiza os dados da plataforma e seus vínculos com jogos, mantendo a relação Many-to-Many.", security = @SecurityRequirement(name = "ApiKeyAuth"))
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Plataforma atualizada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Platform.class))),
+            @ApiResponse(responseCode = "400", description = "Dados inválidos", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Dados inválidos\""))),
+            @ApiResponse(responseCode = "404", description = "Plataforma não encontrada", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find platform 1\"")))
+    })
+    @PutMapping("/platforms/{id}")
+    public ResponseEntity<Platform> updatePlatform(
+            @Parameter(description = "ID da plataforma", example = "1", required = true)
+            @PathVariable Long id,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Dados atualizados da plataforma", required = true,
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = "{ \"name\": \"Xbox Series X\" }")))
+            @Valid @RequestBody Platform updatedPlatform) {
+        return platformRepository.findById(id).map(platform -> {
+            platform.setName(updatedPlatform.getName());
+            platform.setGames(updatedPlatform.getGames());
+            return ResponseEntity.ok(platformRepository.save(platform));
+        }).orElseThrow(() -> new PlatformNotFoundException(id));
+    }
+
+    @Operation(summary = "Deletar plataforma", description = "Remove uma plataforma pelo ID. Requer X-API-Key válida.", security = @SecurityRequirement(name = "ApiKeyAuth"))
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "Plataforma deletada com sucesso"),
+            @ApiResponse(responseCode = "400", description = "ID inválido informado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"ID inválido informado\""))),
+            @ApiResponse(responseCode = "404", description = "Plataforma não encontrada", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find platform 1\"")))
+    })
+    @DeleteMapping("/platforms/{id}")
+    public ResponseEntity<Void> deletePlatform(
+            @Parameter(description = "ID da plataforma", example = "1", required = true)
+            @PathVariable Long id) {
+        var platform = platformRepository.findById(id).orElse(null);
+        if (platform == null) return ResponseEntity.notFound().build();
         platformRepository.deleteById(id);
-// noContent devolve 204, que é o status correto quando a exclusão funciona e não há corpo de resposta.
         return ResponseEntity.noContent().build();
     }
 }

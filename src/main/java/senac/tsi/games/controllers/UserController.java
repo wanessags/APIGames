@@ -1,12 +1,15 @@
 package senac.tsi.games.controllers;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,20 +25,25 @@ import senac.tsi.games.exceptions.UserNotFoundException;
 import senac.tsi.games.repositories.UserRepository;
 
 import java.net.URI;
-import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.*;
 
-// @Tag agrupa e organiza os endpoints no Swagger, facilitando a leitura da documentação.
-@Tag(name = "users", description = "Users route")
+@Tag(name = "Users", description = "Usuários que avaliam jogos e podem possuir chaves de API. Relações: User -> Reviews (One-to-Many) e User -> ApiKeys (One-to-Many).")
 @RestController
-// A classe UserController expõe os endpoints HTTP dessa entidade e organiza o comportamento REST da API.
 public class UserController {
 
     private final UserRepository userRepository;
     private final PagedResourcesAssembler<User> pagedAssembler;
 
-    // @Autowired aqui reforça que o Spring deve fornecer automaticamente as dependências no construtor.
+    // Idempotency storage
+    private final Map<String, IdempotentCreateResponse> createUserResponses = new ConcurrentHashMap<>();
+    private final Object createUserIdempotencyLock = new Object();
+
+    private record CreateUserFingerprint(String name, String email) {}
+    private record IdempotentCreateResponse(CreateUserFingerprint requestFingerprint, User user, URI location) {}
+
     @Autowired
     public UserController(UserRepository userRepository,
                           PagedResourcesAssembler<User> pagedAssembler) {
@@ -43,186 +51,138 @@ public class UserController {
         this.pagedAssembler = pagedAssembler;
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Get all users", description = "Get all users with pagination and HATEOAS links")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
+    @Operation(summary = "Listar usuários", description = "Retorna usuários paginados. Cada usuário pode ter várias reviews e várias chaves de API, ambas relações One-to-Many.")
     @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "200", description = "Users found successfully")
+            @ApiResponse(responseCode = "200", description = "Lista retornada com sucesso", content = @Content(mediaType = "application/json")),
+            @ApiResponse(responseCode = "400", description = "Parâmetros de paginação inválidos", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Parâmetros de paginação inválidos\"")))
     })
-// @GetMapping marca um endpoint de leitura, usado para listar recursos ou buscar um item específico.
     @GetMapping("/users")
-// O status 200 indica que a requisição foi processada com sucesso.
     @ResponseStatus(HttpStatus.OK)
-// Este método atende uma operação de leitura e devolve dados de UserController pela API.
-// Aqui a resposta usa paginação e HATEOAS ao mesmo tempo: por isso o retorno é mais rico do que uma simples List.
     public ResponseEntity<PagedModel<EntityModel<User>>> getUsers(@ParameterObject Pageable pageable) {
-
         var page = userRepository.findAll(pageable);
-
-// O pagedAssembler transforma a página retornada pelo JPA em um modelo HATEOAS paginado, com links embutidos.
-        PagedModel<EntityModel<User>> model = pagedAssembler.toModel(
-                page,
-// EntityModel.of envolve o objeto principal e adiciona links de navegação, como self, update e delete.
+        PagedModel<EntityModel<User>> model = pagedAssembler.toModel(page,
                 user -> EntityModel.of(user,
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                         linkTo(methodOn(UserController.class).getUserById(user.getId())).withSelfRel(),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                         linkTo(methodOn(UserController.class).getUsers(pageable)).withRel("users"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                         linkTo(methodOn(UserController.class).updateUser(user.getId(), null)).withRel("update"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
-                        linkTo(methodOn(UserController.class).deleteUser(user.getId())).withRel("delete"))
-        );
-
-// ResponseEntity.ok devolve 200 quando a operação termina normalmente e o conteúdo pode ser enviado no corpo.
+                        linkTo(methodOn(UserController.class).deleteUser(user.getId())).withRel("delete")));
         return ResponseEntity.ok(model);
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Get user by id", description = "Get one user by id with HATEOAS links")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
+    @Operation(summary = "Buscar usuário por ID", description = "Retorna um usuário específico pelo ID, suas relações com Reviews e ApiKeys e links HATEOAS para navegação.")
     @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "200", description = "User found",
-                    content = { @Content(mediaType = "application/json",
-                            schema = @Schema(implementation = User.class)) }),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "400", description = "Invalid id supplied"),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "404", description = "User not found")
+            @ApiResponse(responseCode = "200", description = "Usuário encontrado com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = User.class))),
+            @ApiResponse(responseCode = "400", description = "ID inválido informado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"ID inválido informado\""))),
+            @ApiResponse(responseCode = "404", description = "Usuário não encontrado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find user 1\"")))
     })
-// @GetMapping marca um endpoint de leitura, usado para listar recursos ou buscar um item específico.
     @GetMapping("/users/{id}")
-// Este método atende uma operação de leitura e devolve dados de UserController pela API.
     public EntityModel<User> getUserById(
-            @PathVariable(name = "id", required = true)
-            @NotNull Long id) {
-
-// Primeiro a API tenta localizar o recurso pelo id; se não encontrar, lança a exceção personalizada da entidade.
+            @Parameter(description = "ID do usuário", example = "1", required = true)
+            @PathVariable(name = "id") @NotNull Long id) {
         User user = userRepository.findById(id)
-// orElseThrow evita retornar null silenciosamente e garante a resposta 404 quando o recurso não existe.
                 .orElseThrow(() -> new UserNotFoundException(id));
-
-// EntityModel.of envolve o objeto principal e adiciona links de navegação, como self, update e delete.
         return EntityModel.of(user,
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(UserController.class).getUserById(id)).withSelfRel(),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(UserController.class).getUsers(Pageable.unpaged())).withRel("users"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(UserController.class).updateUser(id, null)).withRel("update"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(UserController.class).deleteUser(id)).withRel("delete"));
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Search users by email", description = "Search users filtering by email")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
+    @Operation(summary = "Buscar usuários por email", description = "Consulta personalizada paginada. Busca usuários cujo email contenha o termo informado, ignorando maiúsculas/minúsculas.")
     @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "200", description = "Search executed successfully")
+            @ApiResponse(responseCode = "200", description = "Busca realizada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = User.class))),
+            @ApiResponse(responseCode = "400", description = "Parâmetro de busca inválido", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Parâmetro de busca inválido\"")))
     })
-// @GetMapping marca um endpoint de leitura, usado para listar recursos ou buscar um item específico.
     @GetMapping("/users/search")
-// O status 200 indica que a requisição foi processada com sucesso.
     @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<List<User>> searchUsersByEmail(@RequestParam String email) {
-// ResponseEntity.ok devolve 200 quando a operação termina normalmente e o conteúdo pode ser enviado no corpo.
-        return ResponseEntity.ok(userRepository.findByEmailContainingIgnoreCase(email));
+    public ResponseEntity<PagedModel<EntityModel<User>>> searchUsersByEmail(
+            @Parameter(description = "Email do usuário (busca parcial)", example = "wanessa", required = true)
+            @RequestParam String email,
+            @ParameterObject Pageable pageable) {
+        var page = userRepository.findByEmailContainingIgnoreCase(email, pageable);
+        return ResponseEntity.ok(pagedAssembler.toModel(page,
+                user -> EntityModel.of(user,
+                        linkTo(methodOn(UserController.class).getUserById(user.getId())).withSelfRel(),
+                        linkTo(methodOn(UserController.class).updateUser(user.getId(), null)).withRel("update"),
+                        linkTo(methodOn(UserController.class).deleteUser(user.getId())).withRel("delete"))));
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Create user", description = "Create a new user")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
+    @Operation(summary = "Criar usuário", description = "Cria um usuário que poderá escrever reviews e gerar chaves de API. Requer X-API-Key e X-Idempotency-Key.", security = @SecurityRequirement(name = "ApiKeyAuth"))
     @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "201", description = "User created successfully",
-                    content = { @Content(mediaType = "application/json",
-                            schema = @Schema(implementation = User.class),
-                            examples = @ExampleObject(value = """
-                                    {
-                                      "name": "Wanessa",
-                                      "email": "wanessa@email.com"
-                                    }
-                                    """)) }),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "400", description = "Invalid input provided")
+            @ApiResponse(responseCode = "201", description = "Usuário criado com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = User.class))),
+            @ApiResponse(responseCode = "400", description = "X-Idempotency-Key ausente ou em branco", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"X-Idempotency-Key header é obrigatório\""))),
+            @ApiResponse(responseCode = "409", description = "Mesma X-Idempotency-Key usada com payload diferente", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"X-Idempotency-Key já utilizada com payload diferente\"")))
     })
-// @PostMapping marca um endpoint de criação, usado quando queremos inserir um novo recurso.
     @PostMapping("/users")
-// O status 201 indica que um novo recurso foi criado com sucesso.
     @ResponseStatus(HttpStatus.CREATED)
-    public ResponseEntity<User> createUser(@RequestBody User newUser) {
-        User savedUser = userRepository.save(newUser);
+    public ResponseEntity<User> createUser(
+            @Parameter(description = "Chave única para garantir idempotência", required = true)
+            @RequestHeader("X-Idempotency-Key") String idempotencyKey,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Dados do usuário a ser criado", required = true,
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = "{ \"name\": \"Wanessa\", \"email\": \"wanessa@email.com\" }")))
+            @Valid @RequestBody User newUser) {
 
-// ResponseEntity.created devolve o status 201 e ainda informa a URI do recurso recém-criado.
-        return ResponseEntity.created(
-                        URI.create("/users/" + savedUser.getId()))
-                .body(savedUser);
-    }
-
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Update user", description = "Update an existing user")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-    @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "200", description = "User updated successfully"),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "201", description = "User created successfully"),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "400", description = "Invalid input provided")
-    })
-// @PutMapping marca um endpoint de atualização, normalmente usado para alterar um recurso já existente.
-    @PutMapping("/users/{id}")
-    public ResponseEntity<User> updateUser(@PathVariable Long id,
-                                           @RequestBody User updatedUser) {
-
-// Primeiro a API tenta localizar o recurso pelo id; se não encontrar, lança a exceção personalizada da entidade.
-        return userRepository.findById(id).map(
-                user -> {
-                    user.setName(updatedUser.getName());
-                    user.setEmail(updatedUser.getEmail());
-// ResponseEntity.ok devolve 200 quando a operação termina normalmente e o conteúdo pode ser enviado no corpo.
-                    return ResponseEntity.ok(userRepository.save(user));
-                }
-        ).orElseGet(() -> {
-            User savedUser = userRepository.save(updatedUser);
-// ResponseEntity.created devolve o status 201 e ainda informa a URI do recurso recém-criado.
-            return ResponseEntity.created(
-                            URI.create("/users/" + savedUser.getId()))
-                    .body(savedUser);
-        });
-    }
-
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Delete user", description = "Delete a user by id")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-    @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "204", description = "User deleted successfully"),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "404", description = "User not found")
-    })
-// @DeleteMapping marca um endpoint de remoção de recurso.
-    @DeleteMapping("/users/{id}")
-    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
-// Primeiro a API tenta localizar o recurso pelo id; se não encontrar, lança a exceção personalizada da entidade.
-        var user = userRepository.findById(id).orElse(null);
-
-        if (user == null) {
-// notFound devolve 404 sem corpo quando o recurso pedido para remoção não existe.
-            return ResponseEntity.notFound().build();
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return ResponseEntity.badRequest().build();
         }
 
+        var requestFingerprint = new CreateUserFingerprint(newUser.getName(), newUser.getEmail());
+
+        synchronized (createUserIdempotencyLock) {
+            var existing = createUserResponses.get(idempotencyKey);
+
+            if (existing != null) {
+                if (existing.requestFingerprint().equals(requestFingerprint)) {
+                    return ResponseEntity.created(existing.location()).body(existing.user());
+                } else {
+                    return ResponseEntity.status(HttpStatus.CONFLICT).build();
+                }
+            }
+
+            var saved = userRepository.save(newUser);
+            var location = URI.create("/users/" + saved.getId());
+            createUserResponses.put(idempotencyKey, new IdempotentCreateResponse(requestFingerprint, saved, location));
+            return ResponseEntity.created(location).body(saved);
+        }
+    }
+
+    @Operation(summary = "Atualizar usuário", description = "Atualiza nome e email de um usuário. Reviews e ApiKeys vinculadas permanecem associadas ao mesmo ID.", security = @SecurityRequirement(name = "ApiKeyAuth"))
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Usuário atualizado com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = User.class))),
+            @ApiResponse(responseCode = "400", description = "Dados inválidos", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Dados inválidos\""))),
+            @ApiResponse(responseCode = "404", description = "Usuário não encontrado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find user 1\"")))
+    })
+    @PutMapping("/users/{id}")
+    public ResponseEntity<User> updateUser(
+            @Parameter(description = "ID do usuário", example = "1", required = true)
+            @PathVariable Long id,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Dados atualizados do usuário", required = true,
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = "{ \"name\": \"Wanessa Silva\", \"email\": \"wanessa.silva@email.com\" }")))
+            @Valid @RequestBody User updatedUser) {
+        return userRepository.findById(id).map(user -> {
+            user.setName(updatedUser.getName());
+            user.setEmail(updatedUser.getEmail());
+            return ResponseEntity.ok(userRepository.save(user));
+        }).orElseThrow(() -> new UserNotFoundException(id));
+    }
+
+    @Operation(summary = "Deletar usuário", description = "Remove um usuário pelo ID. Como há cascade configurado, reviews e chaves de API vinculadas também podem ser removidas.", security = @SecurityRequirement(name = "ApiKeyAuth"))
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "Usuário deletado com sucesso"),
+            @ApiResponse(responseCode = "400", description = "ID inválido informado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"ID inválido informado\""))),
+            @ApiResponse(responseCode = "404", description = "Usuário não encontrado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find user 1\"")))
+    })
+    @DeleteMapping("/users/{id}")
+    public ResponseEntity<Void> deleteUser(
+            @Parameter(description = "ID do usuário", example = "1", required = true)
+            @PathVariable Long id) {
+        var user = userRepository.findById(id).orElse(null);
+        if (user == null) return ResponseEntity.notFound().build();
         userRepository.deleteById(id);
-// noContent devolve 204, que é o status correto quando a exclusão funciona e não há corpo de resposta.
         return ResponseEntity.noContent().build();
     }
 }

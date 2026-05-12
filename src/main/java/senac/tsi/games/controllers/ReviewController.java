@@ -1,8 +1,15 @@
-
 package senac.tsi.games.controllers;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,14 +31,13 @@ import senac.tsi.games.repositories.ReviewRepository;
 import senac.tsi.games.repositories.UserRepository;
 
 import java.net.URI;
-import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.*;
 
-// @Tag agrupa e organiza os endpoints no Swagger, facilitando a leitura da documentação.
-@Tag(name = "reviews", description = "Reviews route")
+@Tag(name = "Reviews", description = "Avaliações dos jogos. Relações: Review -> Game (Many-to-One) e Review -> User (Many-to-One). A nota deve ficar entre 0 e 10.")
 @RestController
-// A classe ReviewController expõe os endpoints HTTP dessa entidade e organiza o comportamento REST da API.
 public class ReviewController {
 
     private final ReviewRepository reviewRepository;
@@ -39,7 +45,13 @@ public class ReviewController {
     private final UserRepository userRepository;
     private final PagedResourcesAssembler<Review> pagedAssembler;
 
-    // @Autowired aqui reforça que o Spring deve fornecer automaticamente as dependências no construtor.
+    // Idempotency storage
+    private final Map<String, IdempotentCreateResponse> createReviewResponses = new ConcurrentHashMap<>();
+    private final Object createReviewIdempotencyLock = new Object();
+
+    private record CreateReviewFingerprint(String comment, Integer score, Long gameId, Long userId) {}
+    private record IdempotentCreateResponse(CreateReviewFingerprint requestFingerprint, Review review, URI location) {}
+
     @Autowired
     public ReviewController(ReviewRepository reviewRepository,
                             GameRepository gameRepository,
@@ -51,182 +63,207 @@ public class ReviewController {
         this.pagedAssembler = pagedAssembler;
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Get all reviews")
-// @GetMapping marca um endpoint de leitura, usado para listar recursos ou buscar um item específico.
+    @Operation(summary = "Listar reviews", description = "Retorna reviews paginadas. Cada review pertence a um jogo e a um usuário, representando duas relações Many-to-One.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Lista retornada com sucesso", content = @Content(mediaType = "application/json")),
+            @ApiResponse(responseCode = "400", description = "Parâmetros de paginação inválidos", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Parâmetros de paginação inválidos\"")))
+    })
     @GetMapping("/reviews")
-// O status 200 indica que a requisição foi processada com sucesso.
     @ResponseStatus(HttpStatus.OK)
-// Este método atende uma operação de leitura e devolve dados de ReviewController pela API.
-// Aqui a resposta usa paginação e HATEOAS ao mesmo tempo: por isso o retorno é mais rico do que uma simples List.
     public ResponseEntity<PagedModel<EntityModel<Review>>> getReviews(@ParameterObject Pageable pageable) {
-
         var page = reviewRepository.findAll(pageable);
-
-// O pagedAssembler transforma a página retornada pelo JPA em um modelo HATEOAS paginado, com links embutidos.
-        PagedModel<EntityModel<Review>> model = pagedAssembler.toModel(
-                page,
-// EntityModel.of envolve o objeto principal e adiciona links de navegação, como self, update e delete.
+        PagedModel<EntityModel<Review>> model = pagedAssembler.toModel(page,
                 review -> EntityModel.of(review,
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                         linkTo(methodOn(ReviewController.class).getReviewById(review.getId())).withSelfRel(),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                         linkTo(methodOn(ReviewController.class).getReviews(pageable)).withRel("reviews"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                         linkTo(methodOn(ReviewController.class).updateReview(review.getId(), null)).withRel("update"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
-                        linkTo(methodOn(ReviewController.class).deleteReview(review.getId())).withRel("delete"))
-        );
-
-// ResponseEntity.ok devolve 200 quando a operação termina normalmente e o conteúdo pode ser enviado no corpo.
+                        linkTo(methodOn(ReviewController.class).deleteReview(review.getId())).withRel("delete")));
         return ResponseEntity.ok(model);
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Get review by id")
-// @GetMapping marca um endpoint de leitura, usado para listar recursos ou buscar um item específico.
+    @Operation(summary = "Buscar review por ID", description = "Retorna uma review específica e suas relações com Game e User, além dos links HATEOAS self, reviews, update e delete.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Review encontrada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Review.class))),
+            @ApiResponse(responseCode = "400", description = "ID inválido informado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"ID inválido informado\""))),
+            @ApiResponse(responseCode = "404", description = "Review não encontrada", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find review 1\"")))
+    })
     @GetMapping("/reviews/{id}")
-// Este método atende uma operação de leitura e devolve dados de ReviewController pela API.
     public EntityModel<Review> getReviewById(
-            @PathVariable(name = "id", required = true)
-            @NotNull Long id) {
-
-// Primeiro a API tenta localizar o recurso pelo id; se não encontrar, lança a exceção personalizada da entidade.
+            @Parameter(description = "ID da review", example = "1", required = true)
+            @PathVariable(name = "id") @NotNull Long id) {
         Review review = reviewRepository.findById(id)
-// orElseThrow evita retornar null silenciosamente e garante a resposta 404 quando o recurso não existe.
                 .orElseThrow(() -> new ReviewNotFoundException(id));
-
-// EntityModel.of envolve o objeto principal e adiciona links de navegação, como self, update e delete.
         return EntityModel.of(review,
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(ReviewController.class).getReviewById(id)).withSelfRel(),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(ReviewController.class).getReviews(Pageable.unpaged())).withRel("reviews"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(ReviewController.class).updateReview(id, null)).withRel("update"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(ReviewController.class).deleteReview(id)).withRel("delete"));
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Search reviews by score")
-// @GetMapping marca um endpoint de leitura, usado para listar recursos ou buscar um item específico.
-    @GetMapping("/reviews/search")
-// O status 200 indica que a requisição foi processada com sucesso.
+    @Operation(summary = "Buscar reviews de um jogo", description = "Consulta personalizada paginada. Recebe o ID de um Game e retorna as Reviews vinculadas a ele pela relação One-to-Many do lado de Game.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Reviews encontradas com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Review.class))),
+            @ApiResponse(responseCode = "400", description = "ID inválido informado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"ID inválido informado\""))),
+            @ApiResponse(responseCode = "404", description = "Jogo não encontrado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find game 1\"")))
+    })
+    @GetMapping("/games/{id}/reviews")
     @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<List<Review>> searchReviewsByScore(@RequestParam Integer score) {
-// ResponseEntity.ok devolve 200 quando a operação termina normalmente e o conteúdo pode ser enviado no corpo.
-        return ResponseEntity.ok(reviewRepository.findByScore(score));
+    public ResponseEntity<PagedModel<EntityModel<Review>>> getReviewsByGame(
+            @Parameter(description = "ID do jogo", example = "1", required = true)
+            @PathVariable Long id,
+            @ParameterObject Pageable pageable) {
+        gameRepository.findById(id).orElseThrow(() -> new GameNotFoundException(id));
+        var page = reviewRepository.findByGameId(id, pageable);
+        return ResponseEntity.ok(pagedAssembler.toModel(page,
+                review -> EntityModel.of(review,
+                        linkTo(methodOn(ReviewController.class).getReviewById(review.getId())).withSelfRel(),
+                        linkTo(methodOn(ReviewController.class).updateReview(review.getId(), null)).withRel("update"),
+                        linkTo(methodOn(ReviewController.class).deleteReview(review.getId())).withRel("delete"))));
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Create review")
-// @PostMapping marca um endpoint de criação, usado quando queremos inserir um novo recurso.
+    @Operation(summary = "Buscar media das notas de um jogo", description = "Consulta personalizada agregada. Recebe o ID de um Game e calcula a media das notas das Reviews associadas.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Média retornada com sucesso", content = @Content(mediaType = "application/json")),
+            @ApiResponse(responseCode = "400", description = "ID inválido informado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"ID inválido informado\""))),
+            @ApiResponse(responseCode = "404", description = "Jogo não encontrado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find game 1\"")))
+    })
+    @GetMapping("/games/{id}/rating")
+    @ResponseStatus(HttpStatus.OK)
+    public ResponseEntity<Map<String, Object>> getAverageScoreByGame(
+            @Parameter(description = "ID do jogo", example = "1", required = true)
+            @PathVariable Long id) {
+        gameRepository.findById(id).orElseThrow(() -> new GameNotFoundException(id));
+        Double average = reviewRepository.getAverageScoreByGameId(id);
+        return ResponseEntity.ok(Map.of("gameId", id, "averageScore", average == null ? 0.0 : average));
+    }
+
+    @Operation(summary = "Criar review", description = "Cria uma review para um Game existente e um User existente. O corpo deve enviar game.id e user.id. Requer X-API-Key e X-Idempotency-Key.", security = @SecurityRequirement(name = "ApiKeyAuth"))
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "Review criada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Review.class))),
+            @ApiResponse(responseCode = "400", description = "X-Idempotency-Key ausente ou em branco", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"X-Idempotency-Key header é obrigatório\""))),
+            @ApiResponse(responseCode = "404", description = "Jogo ou usuário não encontrado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find game 1\""))),
+            @ApiResponse(responseCode = "409", description = "Mesma X-Idempotency-Key usada com payload diferente", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"X-Idempotency-Key já utilizada com payload diferente\"")))
+    })
     @PostMapping("/reviews")
-// O status 201 indica que um novo recurso foi criado com sucesso.
     @ResponseStatus(HttpStatus.CREATED)
-    public ResponseEntity<Review> createReview(@RequestBody Review newReview) {
+    public ResponseEntity<Review> createReview(
+            @Parameter(description = "Chave única para garantir idempotência", required = true)
+            @RequestHeader("X-Idempotency-Key") String idempotencyKey,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Dados da review a ser criada", required = true,
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                                    {
+                                      "comment": "Jogo incrível, recomendo!",
+                                      "score": 9,
+                                      "game": { "id": 1 },
+                                      "user": { "id": 1 }
+                                    }""")))
+            @Valid @RequestBody Review newReview) {
 
-        Game game = gameRepository.findById(newReview.getGame().getId())
-// orElseThrow evita retornar null silenciosamente e garante a resposta 404 quando o recurso não existe.
-                .orElseThrow(() -> new GameNotFoundException(newReview.getGame().getId()));
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
 
-        User user = userRepository.findById(newReview.getUser().getId())
-// orElseThrow evita retornar null silenciosamente e garante a resposta 404 quando o recurso não existe.
-                .orElseThrow(() -> new UserNotFoundException(newReview.getUser().getId()));
+        Long gameId = getGameId(newReview.getGame());
+        Long userId = getUserId(newReview.getUser());
 
-        newReview.setGame(game);
-        newReview.setUser(user);
+        var requestFingerprint = new CreateReviewFingerprint(
+                newReview.getComment(),
+                newReview.getScore(),
+                gameId,
+                userId
+        );
 
-        Review savedReview = reviewRepository.save(newReview);
+        synchronized (createReviewIdempotencyLock) {
+            var existing = createReviewResponses.get(idempotencyKey);
 
-        user.setReview(savedReview);
-        userRepository.save(user);
-
-// ResponseEntity.created devolve o status 201 e ainda informa a URI do recurso recém-criado.
-        return ResponseEntity.created(
-                        URI.create("/reviews/" + savedReview.getId()))
-                .body(savedReview);
-    }
-
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Update review")
-// @PutMapping marca um endpoint de atualização, normalmente usado para alterar um recurso já existente.
-    @PutMapping("/reviews/{id}")
-    public ResponseEntity<Review> updateReview(@PathVariable Long id,
-                                               @RequestBody Review updatedReview) {
-
-        Game game = gameRepository.findById(updatedReview.getGame().getId())
-// orElseThrow evita retornar null silenciosamente e garante a resposta 404 quando o recurso não existe.
-                .orElseThrow(() -> new GameNotFoundException(updatedReview.getGame().getId()));
-
-        User user = userRepository.findById(updatedReview.getUser().getId())
-// orElseThrow evita retornar null silenciosamente e garante a resposta 404 quando o recurso não existe.
-                .orElseThrow(() -> new UserNotFoundException(updatedReview.getUser().getId()));
-
-// Primeiro a API tenta localizar o recurso pelo id; se não encontrar, lança a exceção personalizada da entidade.
-        return reviewRepository.findById(id).map(
-                review -> {
-// Antes de apagar a review, o código desfaz a ligação com User para não deixar referência pendurada e evitar erro do Hibernate.
-                    if (review.getUser() != null && !review.getUser().getId().equals(user.getId())) {
-                        User oldUser = review.getUser();
-                        oldUser.setReview(null);
-                        userRepository.save(oldUser);
-                    }
-
-                    review.setComment(updatedReview.getComment());
-                    review.setScore(updatedReview.getScore());
-                    review.setGame(game);
-                    review.setUser(user);
-
-                    Review savedReview = reviewRepository.save(review);
-
-                    user.setReview(savedReview);
-                    userRepository.save(user);
-
-// ResponseEntity.ok devolve 200 quando a operação termina normalmente e o conteúdo pode ser enviado no corpo.
-                    return ResponseEntity.ok(savedReview);
+            if (existing != null) {
+                if (existing.requestFingerprint().equals(requestFingerprint)) {
+                    return ResponseEntity.created(existing.location()).body(existing.review());
+                } else {
+                    return ResponseEntity.status(HttpStatus.CONFLICT).build();
                 }
-        ).orElseGet(() -> {
-            updatedReview.setGame(game);
-            updatedReview.setUser(user);
+            }
 
-            Review savedReview = reviewRepository.save(updatedReview);
+            Game game = gameRepository.findById(gameId)
+                    .orElseThrow(() -> new GameNotFoundException(gameId));
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new UserNotFoundException(userId));
 
-            user.setReview(savedReview);
-            userRepository.save(user);
+            newReview.setGame(game);
+            newReview.setUser(user);
 
-// ResponseEntity.created devolve o status 201 e ainda informa a URI do recurso recém-criado.
-            return ResponseEntity.created(
-                            URI.create("/reviews/" + savedReview.getId()))
-                    .body(savedReview);
-        });
+            Review saved = reviewRepository.save(newReview);
+            var location = URI.create("/reviews/" + saved.getId());
+            createReviewResponses.put(idempotencyKey, new IdempotentCreateResponse(requestFingerprint, saved, location));
+            return ResponseEntity.created(location).body(saved);
+        }
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Delete review")
-// @DeleteMapping marca um endpoint de remoção de recurso.
+    @Operation(summary = "Atualizar review", description = "Atualiza comentario, nota e os vínculos da review com Game e User.", security = @SecurityRequirement(name = "ApiKeyAuth"))
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Review atualizada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Review.class))),
+            @ApiResponse(responseCode = "400", description = "Dados inválidos", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Dados inválidos\""))),
+            @ApiResponse(responseCode = "404", description = "Jogo, usuário ou review não encontrado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find review 1\"")))
+    })
+    @PutMapping("/reviews/{id}")
+    public ResponseEntity<Review> updateReview(
+            @Parameter(description = "ID da review", example = "1", required = true)
+            @PathVariable Long id,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Dados atualizados da review", required = true,
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                                    {
+                                      "comment": "Melhor jogo que já joguei!",
+                                      "score": 10,
+                                      "game": { "id": 1 },
+                                      "user": { "id": 1 }
+                                    }""")))
+            @Valid @RequestBody Review updatedReview) {
+        Long gameId = getGameId(updatedReview.getGame());
+        Long userId = getUserId(updatedReview.getUser());
+        Game game = gameRepository.findById(gameId)
+                .orElseThrow(() -> new GameNotFoundException(gameId));
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
+        return reviewRepository.findById(id).map(review -> {
+            review.setComment(updatedReview.getComment());
+            review.setScore(updatedReview.getScore());
+            review.setGame(game);
+            review.setUser(user);
+            return ResponseEntity.ok(reviewRepository.save(review));
+        }).orElseThrow(() -> new ReviewNotFoundException(id));
+    }
+
+    @Operation(summary = "Deletar review", description = "Remove uma review pelo ID sem remover o jogo nem o usuário relacionados.", security = @SecurityRequirement(name = "ApiKeyAuth"))
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "Review deletada com sucesso"),
+            @ApiResponse(responseCode = "400", description = "ID inválido informado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"ID inválido informado\""))),
+            @ApiResponse(responseCode = "404", description = "Review não encontrada", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find review 1\"")))
+    })
     @DeleteMapping("/reviews/{id}")
-    public ResponseEntity<Void> deleteReview(@PathVariable Long id) {
-// Primeiro a API tenta localizar o recurso pelo id; se não encontrar, lança a exceção personalizada da entidade.
-        var review = reviewRepository.findById(id).orElse(null);
-
-        if (review == null) {
-// notFound devolve 404 sem corpo quando o recurso pedido para remoção não existe.
-            return ResponseEntity.notFound().build();
-        }
-
-// Antes de apagar a review, o código desfaz a ligação com User para não deixar referência pendurada e evitar erro do Hibernate.
-        if (review.getUser() != null) {
-            User user = review.getUser();
-// Aqui a referência do usuário para a review é limpa manualmente, o que mantém a integridade do relacionamento OneToOne.
-            user.setReview(null);
-            userRepository.save(user);
-        }
-
-// Depois de desfazer os vínculos necessários, a review pode ser removida com segurança do banco.
+    public ResponseEntity<Void> deleteReview(
+            @Parameter(description = "ID da review", example = "1", required = true)
+            @PathVariable Long id) {
+        Review review = reviewRepository.findById(id).orElse(null);
+        if (review == null) return ResponseEntity.notFound().build();
         reviewRepository.delete(review);
-// noContent devolve 204, que é o status correto quando a exclusão funciona e não há corpo de resposta.
         return ResponseEntity.noContent().build();
+    }
+
+    private Long getGameId(Game game) {
+        if (game == null || game.getId() == null) {
+            throw new IllegalArgumentException("game.id é obrigatório.");
+        }
+        return game.getId();
+    }
+
+    private Long getUserId(User user) {
+        if (user == null || user.getId() == null) {
+            throw new IllegalArgumentException("user.id é obrigatório.");
+        }
+        return user.getId();
     }
 }

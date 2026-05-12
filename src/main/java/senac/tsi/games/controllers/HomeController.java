@@ -8,6 +8,6 @@ public class HomeController {
 
     @GetMapping("/")
     public String home() {
-        return "API Games rodando!";
+        return "API Games rodando! (:";
     }
 }

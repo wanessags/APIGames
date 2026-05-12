@@ -1,18 +1,15 @@
-/*
- * Este arquivo é um controller da API.
- * No padrão do Spring Boot, o controller é a camada responsável por receber as requisições HTTP
- * (GET, POST, PUT e DELETE), chamar o repository correspondente e devolver a resposta ao cliente.
- * Aqui também estão as anotações de documentação Swagger e os recursos de HATEOAS/paginação.
- */
 package senac.tsi.games.controllers;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,21 +26,25 @@ import senac.tsi.games.exceptions.CategoryNotFoundException;
 import senac.tsi.games.repositories.CategoryRepository;
 
 import java.net.URI;
-import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.*;
 
-// @Tag agrupa e organiza os endpoints no Swagger, facilitando a leitura da documentação.
-@Tag(name = "categories", description = "Categories route")
+@Tag(name = "Categories", description = "Categorias classificam jogos por tipo. Relação: Category -> Games (One-to-Many). Tipos válidos: RPG, ACTION, ADVENTURE, SPORTS e STRATEGY.")
 @RestController
-
-// A classe CategoryController expõe os endpoints HTTP dessa entidade e organiza o comportamento REST da API.
 public class CategoryController {
 
     private final CategoryRepository categoryRepository;
     private final PagedResourcesAssembler<Category> pagedAssembler;
 
-    // @Autowired aqui reforça que o Spring deve fornecer automaticamente as dependências no construtor.
+    // Idempotency storage
+    private final Map<String, IdempotentCreateResponse> createCategoryResponses = new ConcurrentHashMap<>();
+    private final Object createCategoryIdempotencyLock = new Object();
+
+    private record CreateCategoryFingerprint(String type) {}
+    private record IdempotentCreateResponse(CreateCategoryFingerprint requestFingerprint, Category category, URI location) {}
+
     @Autowired
     public CategoryController(CategoryRepository categoryRepository,
                               PagedResourcesAssembler<Category> pagedAssembler) {
@@ -51,184 +52,139 @@ public class CategoryController {
         this.pagedAssembler = pagedAssembler;
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Get all categories", description = "Get all categories with pagination and HATEOAS links")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
+    @Operation(summary = "Listar categorias", description = "Retorna categorias paginadas. Cada categoria pode agrupar vários jogos, representando a relação One-to-Many com Game.")
     @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "200", description = "Categories found successfully")
+            @ApiResponse(responseCode = "200", description = "Lista retornada com sucesso", content = @Content(mediaType = "application/json")),
+            @ApiResponse(responseCode = "400", description = "Parâmetros de paginação inválidos", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Parâmetros de paginação inválidos\"")))
     })
-// @GetMapping marca um endpoint de leitura, usado para listar recursos ou buscar um item específico.
     @GetMapping("/categories")
-// O status 200 indica que a requisição foi processada com sucesso.
     @ResponseStatus(HttpStatus.OK)
-// Este método atende uma operação de leitura e devolve dados de CategoryController pela API.
-// Aqui a resposta usa paginação e HATEOAS ao mesmo tempo: por isso o retorno é mais rico do que uma simples List.
     public ResponseEntity<PagedModel<EntityModel<Category>>> getCategories(@ParameterObject Pageable pageable) {
-
         var page = categoryRepository.findAll(pageable);
-
-// O pagedAssembler transforma a página retornada pelo JPA em um modelo HATEOAS paginado, com links embutidos.
-        PagedModel<EntityModel<Category>> model = pagedAssembler.toModel(
-                page,
-// EntityModel.of envolve o objeto principal e adiciona links de navegação, como self, update e delete.
+        PagedModel<EntityModel<Category>> model = pagedAssembler.toModel(page,
                 category -> EntityModel.of(category,
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                         linkTo(methodOn(CategoryController.class).getCategoryById(category.getId())).withSelfRel(),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                         linkTo(methodOn(CategoryController.class).getCategories(pageable)).withRel("categories"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                         linkTo(methodOn(CategoryController.class).updateCategory(category.getId(), null)).withRel("update"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
-                        linkTo(methodOn(CategoryController.class).deleteCategory(category.getId())).withRel("delete"))
-        );
-
-// ResponseEntity.ok devolve 200 quando a operação termina normalmente e o conteúdo pode ser enviado no corpo.
+                        linkTo(methodOn(CategoryController.class).deleteCategory(category.getId())).withRel("delete")));
         return ResponseEntity.ok(model);
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Get category by id", description = "Get one category by id with HATEOAS links")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
+    @Operation(summary = "Buscar categoria por ID", description = "Retorna uma categoria específica e seus links HATEOAS. A categoria é usada pelos jogos por meio de relação Many-to-One no lado de Game.")
     @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "200", description = "Category found",
-                    content = { @Content(mediaType = "application/json",
-                            schema = @Schema(implementation = Category.class)) }),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "400", description = "Invalid id supplied"),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "404", description = "Category not found")
+            @ApiResponse(responseCode = "200", description = "Categoria encontrada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Category.class))),
+            @ApiResponse(responseCode = "400", description = "ID inválido informado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"ID inválido informado\""))),
+            @ApiResponse(responseCode = "404", description = "Categoria não encontrada", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find category 1\"")))
     })
-// @GetMapping marca um endpoint de leitura, usado para listar recursos ou buscar um item específico.
     @GetMapping("/categories/{id}")
-// Este método atende uma operação de leitura e devolve dados de CategoryController pela API.
     public EntityModel<Category> getCategoryById(
-            @PathVariable(name = "id", required = true)
-            @NotNull Long id) {
-
-// Primeiro a API tenta localizar o recurso pelo id; se não encontrar, lança a exceção personalizada da entidade.
+            @Parameter(description = "ID da categoria", example = "1", required = true)
+            @PathVariable(name = "id") @NotNull Long id) {
         Category category = categoryRepository.findById(id)
-// orElseThrow evita retornar null silenciosamente e garante a resposta 404 quando o recurso não existe.
                 .orElseThrow(() -> new CategoryNotFoundException(id));
-
-// EntityModel.of envolve o objeto principal e adiciona links de navegação, como self, update e delete.
         return EntityModel.of(category,
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(CategoryController.class).getCategoryById(id)).withSelfRel(),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(CategoryController.class).getCategories(Pageable.unpaged())).withRel("categories"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(CategoryController.class).updateCategory(id, null)).withRel("update"),
-// linkTo(methodOn(...)) cria links baseados nos próprios métodos do controller, evitando URL escrita manualmente.
                 linkTo(methodOn(CategoryController.class).deleteCategory(id)).withRel("delete"));
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Search categories by type", description = "Search categories filtering by enum type")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
+    @Operation(summary = "Buscar categorias por tipo", description = "Consulta personalizada paginada por enum CategoryType. Valores aceitos: RPG, ACTION, ADVENTURE, SPORTS e STRATEGY.")
     @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "200", description = "Search executed successfully")
+            @ApiResponse(responseCode = "200", description = "Busca realizada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Category.class))),
+            @ApiResponse(responseCode = "400", description = "Tipo inválido. Use: RPG, ACTION, ADVENTURE, SPORTS ou STRATEGY", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Tipo inválido. Use: RPG, ACTION, ADVENTURE, SPORTS ou STRATEGY\"")))
     })
-// @GetMapping marca um endpoint de leitura, usado para listar recursos ou buscar um item específico.
     @GetMapping("/categories/search")
-// O status 200 indica que a requisição foi processada com sucesso.
     @ResponseStatus(HttpStatus.OK)
-    public ResponseEntity<List<Category>> searchCategoriesByType(@RequestParam CategoryType type) {
-// ResponseEntity.ok devolve 200 quando a operação termina normalmente e o conteúdo pode ser enviado no corpo.
-        return ResponseEntity.ok(categoryRepository.findByType(type));
+    public ResponseEntity<PagedModel<EntityModel<Category>>> searchCategoriesByType(
+            @Parameter(description = "Tipo da categoria", example = "RPG", required = true)
+            @RequestParam CategoryType type,
+            @ParameterObject Pageable pageable) {
+        var page = categoryRepository.findByType(type, pageable);
+        return ResponseEntity.ok(pagedAssembler.toModel(page,
+                category -> EntityModel.of(category,
+                        linkTo(methodOn(CategoryController.class).getCategoryById(category.getId())).withSelfRel(),
+                        linkTo(methodOn(CategoryController.class).updateCategory(category.getId(), null)).withRel("update"),
+                        linkTo(methodOn(CategoryController.class).deleteCategory(category.getId())).withRel("delete"))));
     }
 
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Create category", description = "Create a new category")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
+    @Operation(summary = "Criar categoria", description = "Cria uma categoria do catálogo. Depois de criada, ela pode ser vinculada a vários jogos. Requer X-API-Key e X-Idempotency-Key.", security = @SecurityRequirement(name = "ApiKeyAuth"))
     @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "201", description = "Category created successfully",
-                    content = { @Content(mediaType = "application/json",
-                            schema = @Schema(implementation = Category.class),
-                            examples = @ExampleObject(value = """
-                                    {
-                                      "type": "RPG"
-                                    }
-                                    """)) }),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "400", description = "Invalid input provided")
+            @ApiResponse(responseCode = "201", description = "Categoria criada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Category.class))),
+            @ApiResponse(responseCode = "400", description = "X-Idempotency-Key ausente ou em branco", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"X-Idempotency-Key header é obrigatório\""))),
+            @ApiResponse(responseCode = "409", description = "Mesma X-Idempotency-Key usada com payload diferente", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"X-Idempotency-Key já utilizada com payload diferente\"")))
     })
-// @PostMapping marca um endpoint de criação, usado quando queremos inserir um novo recurso.
     @PostMapping("/categories")
-// O status 201 indica que um novo recurso foi criado com sucesso.
     @ResponseStatus(HttpStatus.CREATED)
-    public ResponseEntity<Category> createCategory(@RequestBody Category newCategory) {
-        Category savedCategory = categoryRepository.save(newCategory);
+    public ResponseEntity<Category> createCategory(
+            @Parameter(description = "Chave única para garantir idempotência", required = true)
+            @RequestHeader("X-Idempotency-Key") String idempotencyKey,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Dados da categoria a ser criada", required = true,
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = "{ \"type\": \"RPG\" }")))
+            @Valid @RequestBody Category newCategory) {
 
-// ResponseEntity.created devolve o status 201 e ainda informa a URI do recurso recém-criado.
-        return ResponseEntity.created(
-                        URI.create("/categories/" + savedCategory.getId()))
-                .body(savedCategory);
-    }
-
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Update category", description = "Update an existing category")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-    @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "200", description = "Category updated successfully"),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "201", description = "Category created successfully"),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "400", description = "Invalid input provided")
-    })
-// @PutMapping marca um endpoint de atualização, normalmente usado para alterar um recurso já existente.
-    @PutMapping("/categories/{id}")
-    public ResponseEntity<Category> updateCategory(@PathVariable Long id,
-                                                   @RequestBody Category updatedCategory) {
-
-// Primeiro a API tenta localizar o recurso pelo id; se não encontrar, lança a exceção personalizada da entidade.
-        return categoryRepository.findById(id).map(
-                category -> {
-                    category.setType(updatedCategory.getType());
-// ResponseEntity.ok devolve 200 quando a operação termina normalmente e o conteúdo pode ser enviado no corpo.
-                    return ResponseEntity.ok(categoryRepository.save(category));
-                }
-        ).orElseGet(() -> {
-            Category savedCategory = categoryRepository.save(updatedCategory);
-// ResponseEntity.created devolve o status 201 e ainda informa a URI do recurso recém-criado.
-            return ResponseEntity.created(
-                            URI.create("/categories/" + savedCategory.getId()))
-                    .body(savedCategory);
-        });
-    }
-
-    // @Operation documenta o objetivo do endpoint para que o Swagger mostre a intenção de uso de forma clara.
-    @Operation(summary = "Delete category", description = "Delete a category by id")
-// @ApiResponses descreve os códigos de resposta possíveis, o que ajuda muito tanto na apresentação quanto no consumo da API.
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-    @ApiResponses(value = {
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "204", description = "Category deleted successfully"),
-// Cada @ApiResponse explica um status HTTP possível para a operação documentada logo abaixo.
-            @ApiResponse(responseCode = "404", description = "Category not found")
-    })
-// @DeleteMapping marca um endpoint de remoção de recurso.
-    @DeleteMapping("/categories/{id}")
-    public ResponseEntity<Void> deleteCategory(@PathVariable Long id) {
-// Primeiro a API tenta localizar o recurso pelo id; se não encontrar, lança a exceção personalizada da entidade.
-        var category = categoryRepository.findById(id).orElse(null);
-
-        if (category == null) {
-// notFound devolve 404 sem corpo quando o recurso pedido para remoção não existe.
-            return ResponseEntity.notFound().build();
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return ResponseEntity.badRequest().build();
         }
 
+        var requestFingerprint = new CreateCategoryFingerprint(
+                newCategory.getType() != null ? newCategory.getType().name() : null
+        );
+
+        synchronized (createCategoryIdempotencyLock) {
+            var existing = createCategoryResponses.get(idempotencyKey);
+
+            if (existing != null) {
+                if (existing.requestFingerprint().equals(requestFingerprint)) {
+                    return ResponseEntity.created(existing.location()).body(existing.category());
+                } else {
+                    return ResponseEntity.status(HttpStatus.CONFLICT).build();
+                }
+            }
+
+            var saved = categoryRepository.save(newCategory);
+            var location = URI.create("/categories/" + saved.getId());
+            createCategoryResponses.put(idempotencyKey, new IdempotentCreateResponse(requestFingerprint, saved, location));
+            return ResponseEntity.created(location).body(saved);
+        }
+    }
+
+    @Operation(summary = "Atualizar categoria", description = "Atualiza o tipo da categoria. Jogos vinculados continuam usando a mesma categoria pelo relacionamento One-to-Many.", security = @SecurityRequirement(name = "ApiKeyAuth"))
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Categoria atualizada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Category.class))),
+            @ApiResponse(responseCode = "400", description = "Dados inválidos", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Dados inválidos\""))),
+            @ApiResponse(responseCode = "404", description = "Categoria não encontrada", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find category 1\"")))
+    })
+    @PutMapping("/categories/{id}")
+    public ResponseEntity<Category> updateCategory(
+            @Parameter(description = "ID da categoria", example = "1", required = true)
+            @PathVariable Long id,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Dados atualizados da categoria", required = true,
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = "{ \"type\": \"ACTION\" }")))
+            @Valid @RequestBody Category updatedCategory) {
+        return categoryRepository.findById(id).map(category -> {
+            category.setType(updatedCategory.getType());
+            return ResponseEntity.ok(categoryRepository.save(category));
+        }).orElseThrow(() -> new CategoryNotFoundException(id));
+    }
+
+    @Operation(summary = "Deletar categoria", description = "Remove uma categoria pelo ID. Se houver jogos vinculados por cascade, eles também podem ser afetados conforme o mapeamento JPA.", security = @SecurityRequirement(name = "ApiKeyAuth"))
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "Categoria deletada com sucesso"),
+            @ApiResponse(responseCode = "400", description = "ID inválido informado", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"ID inválido informado\""))),
+            @ApiResponse(responseCode = "404", description = "Categoria não encontrada", content = @Content(mediaType = "application/json", schema = @Schema(type = "string"), examples = @ExampleObject(value = "\"Could not find category 1\"")))
+    })
+    @DeleteMapping("/categories/{id}")
+    public ResponseEntity<Void> deleteCategory(
+            @Parameter(description = "ID da categoria", example = "1", required = true)
+            @PathVariable Long id) {
+        var category = categoryRepository.findById(id).orElse(null);
+        if (category == null) return ResponseEntity.notFound().build();
         categoryRepository.deleteById(id);
-// noContent devolve 204, que é o status correto quando a exclusão funciona e não há corpo de resposta.
         return ResponseEntity.noContent().build();
     }
 }
