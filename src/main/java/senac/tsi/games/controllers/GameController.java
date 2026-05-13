@@ -108,32 +108,31 @@ public class GameController {
                         linkTo(methodOn(GameController.class).deleteGame(game.getId())).withRel("delete"))));
     }
 
-    @Operation(summary = "Resumo do jogo - versão 1", description = "Endpoint de demonstração de versionamento por header. Envie X-API-Version: 1 para receber apenas id e nome do jogo.")
+    @Operation(summary = "Resumo do jogo versionado", description = "Endpoint de demonstração de versionamento por header. Envie X-API-Version: 1 para receber id e nome. Envie X-API-Version: 2 para receber id, nome, preço, categoria, plataformas e quantidade de reviews.")
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Resumo v1 retornado com sucesso"),
+            @ApiResponse(responseCode = "200", description = "Resumo retornado com sucesso"),
+            @ApiResponse(responseCode = "400", description = "Versão inválida. Use X-API-Version: 1 ou X-API-Version: 2"),
             @ApiResponse(responseCode = "404", description = "Jogo não encontrado")
     })
-    @GetMapping(value = "/games/{id}/summary", headers = "X-API-Version=1")
-    public EntityModel<Map<String, Object>> getGameSummaryV1(
-            @Parameter(description = "ID do jogo", example = "1")
-            @PathVariable Long id) {
+    @GetMapping("/games/{id}/summary")
+    public EntityModel<Map<String, Object>> getGameSummary(
+            @Parameter(description = "ID do jogo", example = "1", required = true)
+            @PathVariable Long id,
+            @Parameter(description = "Versão da resposta. Use 1 ou 2.", example = "1", required = true)
+            @RequestHeader("X-API-Version") String apiVersion) {
         Game game = gameRepository.findById(id).orElseThrow(() -> new GameNotFoundException(id));
-        return EntityModel.of(Map.of(
-                        "id", game.getId(),
-                        "name", game.getName()),
-                linkTo(methodOn(GameController.class).getGameById(id)).withRel("game"));
-    }
 
-    @Operation(summary = "Resumo do jogo - versão 2", description = "Endpoint de demonstração de versionamento por header. Envie X-API-Version: 2 para receber id, nome, preço, categoria, plataformas e quantidade de reviews.")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Resumo v2 retornado com sucesso"),
-            @ApiResponse(responseCode = "404", description = "Jogo não encontrado")
-    })
-    @GetMapping(value = "/games/{id}/summary", headers = "X-API-Version=2")
-    public EntityModel<Map<String, Object>> getGameSummaryV2(
-            @Parameter(description = "ID do jogo", example = "1")
-            @PathVariable Long id) {
-        Game game = gameRepository.findById(id).orElseThrow(() -> new GameNotFoundException(id));
+        if ("1".equals(apiVersion)) {
+            return EntityModel.of(Map.of(
+                            "id", game.getId(),
+                            "name", game.getName()),
+                    linkTo(methodOn(GameController.class).getGameById(id)).withRel("game"));
+        }
+
+        if (!"2".equals(apiVersion)) {
+            throw new IllegalArgumentException("X-API-Version inválido. Use 1 ou 2.");
+        }
+
         String category = game.getCategory() == null ? null : game.getCategory().getType().name();
         List<String> platforms = game.getPlatforms().stream().map(platform -> platform.getName()).toList();
         Map<String, Object> summary = new java.util.LinkedHashMap<>();

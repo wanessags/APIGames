@@ -46,16 +46,17 @@ import java.util.Map;
                         - HATEOAS com links self, update, delete e navegação entre recursos relacionados.
                         - Validação com Bean Validation e tratamento global de erros.
                         - Autenticação por X-API-Key para operações sensíveis, com níveis READ, WRITE e ADMIN.
-                        - Login acadêmico em POST /auth/login para gerar uma chave aleatória por email.
+                        - Geração de chaves aleatórias com POST /api-keys e POST /api-keys/random usando X-API-Key.
                         - Idempotência em POST por X-Idempotency-Key.
                         - Rate limiting: 8 requisições por minuto; ao exceder, retorna 429 e bloqueia por 60 segundos.
                         - Versionamento demonstrado em GET /games/{id}/summary usando X-API-Version.
 
                         Fluxo recomendado para testar:
-                        1. Use POST /auth/login com o email wanessa@email.com para gerar uma chave aleatória.
-                        2. Clique em Authorize e informe o keyValue retornado, ou use games-demo-key para testes administrativos.
-                        3. Para POST, envie também X-Idempotency-Key com um valor único.
-                        4. Consulte os links HATEOAS retornados para navegar entre recursos.
+                        1. Clique em Authorize e use games-demo-key para gerar novas chaves.
+                        2. Use POST /api-keys/random para gerar uma chave aleatória e copie o keyValue retornado.
+                        3. Clique em Authorize novamente e informe o keyValue retornado.
+                        4. Para POST, envie também X-Idempotency-Key com um valor único.
+                        5. Consulte os links HATEOAS retornados para navegar entre recursos.
                         """,
                 contact = @Contact(
                         name = "Wanessa Gonçalves",
@@ -87,7 +88,7 @@ import java.util.Map;
                         description = "Usuários da API. Um User pode escrever várias Reviews e possuir várias ApiKeys (One-to-Many)."),
                 @Tag(
                         name = "API Keys",
-                        description = "Login, CRUD e gerenciamento de chaves de API. Use POST /auth/login para gerar uma chave aleatória. Endpoints administrativos de chaves exigem X-API-Key com nível ADMIN e X-Idempotency-Key em operações POST.")
+                        description = "CRUD e gerenciamento de chaves aleatórias de API. Use POST /api-keys ou POST /api-keys/random com X-API-Key ADMIN. O valor gerado em keyValue deve ser usado no header X-API-Key.")
         },
         externalDocs = @ExternalDocumentation(
                 description = "Swagger UI",

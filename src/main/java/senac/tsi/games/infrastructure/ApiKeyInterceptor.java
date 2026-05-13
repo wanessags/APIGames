@@ -63,7 +63,6 @@ public class ApiKeyInterceptor implements HandlerInterceptor {
 
         if (HttpMethod.OPTIONS.matches(method)
                 || path.equals("/")
-                || path.equals("/auth/login")
                 || path.startsWith("/swagger-ui")
                 || path.startsWith("/v3/api-docs")
                 || path.startsWith("/h2-console")) {

@@ -95,7 +95,6 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         }
 
         return !(path.startsWith("/games")
-                || path.startsWith("/auth")
                 || path.startsWith("/categories")
                 || path.startsWith("/platforms")
                 || path.startsWith("/reviews")
