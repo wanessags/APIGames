@@ -46,17 +46,19 @@ import java.util.Map;
                         - HATEOAS com links self, update, delete e navegação entre recursos relacionados.
                         - Validação com Bean Validation e tratamento global de erros.
                         - Autenticação por X-API-Key para operações sensíveis, com níveis READ, WRITE e ADMIN.
-                        - Geração de chaves aleatórias com POST /api-keys e POST /api-keys/random usando X-API-Key.
+                        - Autenticação por chave de API enviada no header X-API-Key.
+                        - Gerenciamento de chaves com POST /api-keys usando uma chave ADMIN.
                         - Idempotência em POST por X-Idempotency-Key.
                         - Rate limiting: 8 requisições por minuto; ao exceder, retorna 429 e bloqueia por 60 segundos.
                         - Versionamento demonstrado em GET /games/{id}/summary usando X-API-Version.
 
                         Fluxo recomendado para testar:
-                        1. Clique em Authorize e use games-demo-key para gerar novas chaves.
-                        2. Use POST /api-keys/random para gerar uma chave aleatória e copie o keyValue retornado.
-                        3. Clique em Authorize novamente e informe o keyValue retornado.
+                        1. Clique em Authorize.
+                        2. Informe a chave games-demo-key.
+                        3. O Swagger enviará automaticamente o header X-API-Key nos endpoints protegidos.
                         4. Para POST, envie também X-Idempotency-Key com um valor único.
-                        5. Consulte os links HATEOAS retornados para navegar entre recursos.
+                        5. Opcionalmente, gere novas chaves em POST /api-keys usando uma chave ADMIN.
+                        6. Consulte os links HATEOAS retornados para navegar entre recursos.
                         """,
                 contact = @Contact(
                         name = "Wanessa Gonçalves",
@@ -88,7 +90,7 @@ import java.util.Map;
                         description = "Usuários da API. Um User pode escrever várias Reviews e possuir várias ApiKeys (One-to-Many)."),
                 @Tag(
                         name = "API Keys",
-                        description = "CRUD e gerenciamento de chaves aleatórias de API. Use POST /api-keys ou POST /api-keys/random com X-API-Key ADMIN. O valor gerado em keyValue deve ser usado no header X-API-Key.")
+                        description = "CRUD e gerenciamento de chaves de API. Para testes acadêmicos, use games-demo-key no header X-API-Key. Novas chaves podem ser criadas em POST /api-keys usando uma chave ADMIN.")
         },
         externalDocs = @ExternalDocumentation(
                 description = "Swagger UI",
@@ -103,7 +105,7 @@ public class OpenApiConfig {
                 pathItem.readOperationsMap().forEach((method, operation) -> {
                     addSuccessResponseIfMissing(method, operation);
                     addErrorResponseIfMissing(operation, "400", "Requisição inválida. Dados, parâmetros ou headers obrigatórios não foram enviados corretamente.");
-                    addNotFoundIfNeeded(path, operation);
+                    addNotFoundIfNeeded(path, method, operation);
                     addConflictIfNeeded(method, operation);
                     addSecurityErrorsIfNeeded(operation);
                     addRateLimitIfMissing(operation);
@@ -122,9 +124,9 @@ public class OpenApiConfig {
         }
     }
 
-    private void addNotFoundIfNeeded(String path, Operation operation) {
-        if (path.contains("{")) {
-            addErrorResponseIfMissing(operation, "404", "Recurso não encontrado para o identificador informado.");
+    private void addNotFoundIfNeeded(String path, PathItem.HttpMethod method, Operation operation) {
+        if (method == PathItem.HttpMethod.GET || path.contains("{")) {
+            addErrorResponseIfMissing(operation, "404", "Recurso, busca ou página não encontrada para os parâmetros informados.");
         }
     }
 
@@ -167,7 +169,20 @@ public class OpenApiConfig {
     }
 
     private void addErrorResponseIfMissing(Operation operation, String code, String description) {
-        addResponseIfMissing(operation, code, description);
+        if (!operation.getResponses().containsKey(code)) {
+            int status = Integer.parseInt(code);
+            operation.getResponses().addApiResponse(code, new ApiResponse()
+                    .description(description)
+                    .content(new Content().addMediaType("application/json", new MediaType()
+                            .schema(new Schema<ApiError>()
+                                    .example(Map.of(
+                                            "timestamp", "2026-05-15T12:00:00Z",
+                                            "status", status,
+                                            "error", description,
+                                            "message", description,
+                                            "path", "/games/999",
+                                            "fields", Map.of()))))));
+        }
     }
 
     private void addResponseIfMissing(Operation operation, String code, String description) {

@@ -25,6 +25,7 @@ import senac.tsi.games.entities.Review;
 import senac.tsi.games.entities.User;
 import senac.tsi.games.exceptions.GameNotFoundException;
 import senac.tsi.games.exceptions.ReviewNotFoundException;
+import senac.tsi.games.exceptions.SearchResultNotFoundException;
 import senac.tsi.games.exceptions.UserNotFoundException;
 import senac.tsi.games.repositories.GameRepository;
 import senac.tsi.games.repositories.ReviewRepository;
@@ -72,6 +73,9 @@ public class ReviewController {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<PagedModel<EntityModel<Review>>> getReviews(@ParameterObject Pageable pageable) {
         var page = reviewRepository.findAll(pageable);
+        if (page.isEmpty()) {
+            throw new SearchResultNotFoundException("Nenhuma review encontrada para a página informada.");
+        }
         PagedModel<EntityModel<Review>> model = pagedAssembler.toModel(page,
                 review -> EntityModel.of(review,
                         linkTo(methodOn(ReviewController.class).getReviewById(review.getId())).withSelfRel(),
@@ -114,6 +118,9 @@ public class ReviewController {
             @ParameterObject Pageable pageable) {
         gameRepository.findById(id).orElseThrow(() -> new GameNotFoundException(id));
         var page = reviewRepository.findByGameId(id, pageable);
+        if (page.isEmpty()) {
+            throw new SearchResultNotFoundException("Nenhuma review encontrada para o jogo " + id + " na página informada.");
+        }
         return ResponseEntity.ok(pagedAssembler.toModel(page,
                 review -> EntityModel.of(review,
                         linkTo(methodOn(ReviewController.class).getReviewById(review.getId())).withSelfRel(),
@@ -134,7 +141,10 @@ public class ReviewController {
             @PathVariable Long id) {
         gameRepository.findById(id).orElseThrow(() -> new GameNotFoundException(id));
         Double average = reviewRepository.getAverageScoreByGameId(id);
-        return ResponseEntity.ok(Map.of("gameId", id, "averageScore", average == null ? 0.0 : average));
+        if (average == null) {
+            throw new SearchResultNotFoundException("Nenhuma nota encontrada para o jogo " + id + ".");
+        }
+        return ResponseEntity.ok(Map.of("gameId", id, "averageScore", average));
     }
 
     @Operation(summary = "Criar review", description = "Cria uma review para um Game existente e um User existente. O corpo deve enviar game.id e user.id. Requer X-API-Key e X-Idempotency-Key.", security = @SecurityRequirement(name = "ApiKeyAuth"))
@@ -162,7 +172,7 @@ public class ReviewController {
             @Valid @RequestBody Review newReview) {
 
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            return ResponseEntity.badRequest().build();
+            throw new IllegalArgumentException("X-Idempotency-Key header é obrigatório.");
         }
 
         Long gameId = getGameId(newReview.getGame());
@@ -248,7 +258,7 @@ public class ReviewController {
             @Parameter(description = "ID da review", example = "1", required = true)
             @PathVariable Long id) {
         Review review = reviewRepository.findById(id).orElse(null);
-        if (review == null) return ResponseEntity.notFound().build();
+        if (review == null) throw new ReviewNotFoundException(id);
         reviewRepository.delete(review);
         return ResponseEntity.noContent().build();
     }

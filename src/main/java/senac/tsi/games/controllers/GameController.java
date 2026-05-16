@@ -22,6 +22,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import senac.tsi.games.entities.Game;
 import senac.tsi.games.exceptions.GameNotFoundException;
+import senac.tsi.games.exceptions.SearchResultNotFoundException;
 import senac.tsi.games.repositories.GameRepository;
 
 import java.net.URI;
@@ -61,6 +62,9 @@ public class GameController {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<PagedModel<EntityModel<Game>>> getGames(@ParameterObject Pageable pageable) {
         var page = gameRepository.findAll(pageable);
+        if (page.isEmpty()) {
+            throw new SearchResultNotFoundException("Nenhum jogo encontrado para a página informada.");
+        }
         PagedModel<EntityModel<Game>> model = pagedAssembler.toModel(page,
                 game -> EntityModel.of(game,
                         linkTo(methodOn(GameController.class).getGameById(game.getId())).withSelfRel(),
@@ -101,6 +105,9 @@ public class GameController {
             @RequestParam String name,
             @ParameterObject Pageable pageable) {
         var page = gameRepository.findByNameContainingIgnoreCase(name, pageable);
+        if (page.isEmpty()) {
+            throw new SearchResultNotFoundException("Nenhum jogo encontrado para o nome " + name + " na página informada.");
+        }
         return ResponseEntity.ok(pagedAssembler.toModel(page,
                 game -> EntityModel.of(game,
                         linkTo(methodOn(GameController.class).getGameById(game.getId())).withSelfRel(),
@@ -172,7 +179,7 @@ public class GameController {
             @Valid @RequestBody Game newGame) {
 
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            return ResponseEntity.badRequest().build();
+            throw new IllegalArgumentException("X-Idempotency-Key header é obrigatório.");
         }
 
         var requestFingerprint = new CreateGameFingerprint(
@@ -247,7 +254,7 @@ public class GameController {
             @Parameter(description = "ID do jogo", example = "1", required = true)
             @PathVariable Long id) {
         var game = gameRepository.findById(id).orElse(null);
-        if (game == null) return ResponseEntity.notFound().build();
+        if (game == null) throw new GameNotFoundException(id);
         gameRepository.deleteById(id);
         return ResponseEntity.noContent().build();
     }

@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 import senac.tsi.games.entities.Category;
 import senac.tsi.games.entities.CategoryType;
 import senac.tsi.games.exceptions.CategoryNotFoundException;
+import senac.tsi.games.exceptions.SearchResultNotFoundException;
 import senac.tsi.games.repositories.CategoryRepository;
 
 import java.net.URI;
@@ -61,6 +62,9 @@ public class CategoryController {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<PagedModel<EntityModel<Category>>> getCategories(@ParameterObject Pageable pageable) {
         var page = categoryRepository.findAll(pageable);
+        if (page.isEmpty()) {
+            throw new SearchResultNotFoundException("Nenhuma categoria encontrada para a página informada.");
+        }
         PagedModel<EntityModel<Category>> model = pagedAssembler.toModel(page,
                 category -> EntityModel.of(category,
                         linkTo(methodOn(CategoryController.class).getCategoryById(category.getId())).withSelfRel(),
@@ -101,6 +105,9 @@ public class CategoryController {
             @RequestParam CategoryType type,
             @ParameterObject Pageable pageable) {
         var page = categoryRepository.findByType(type, pageable);
+        if (page.isEmpty()) {
+            throw new SearchResultNotFoundException("Nenhuma categoria encontrada para o tipo " + type + " na página informada.");
+        }
         return ResponseEntity.ok(pagedAssembler.toModel(page,
                 category -> EntityModel.of(category,
                         linkTo(methodOn(CategoryController.class).getCategoryById(category.getId())).withSelfRel(),
@@ -126,7 +133,7 @@ public class CategoryController {
             @Valid @RequestBody Category newCategory) {
 
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            return ResponseEntity.badRequest().build();
+            throw new IllegalArgumentException("X-Idempotency-Key header é obrigatório.");
         }
 
         var requestFingerprint = new CreateCategoryFingerprint(
@@ -183,7 +190,7 @@ public class CategoryController {
             @Parameter(description = "ID da categoria", example = "1", required = true)
             @PathVariable Long id) {
         var category = categoryRepository.findById(id).orElse(null);
-        if (category == null) return ResponseEntity.notFound().build();
+        if (category == null) throw new CategoryNotFoundException(id);
         categoryRepository.deleteById(id);
         return ResponseEntity.noContent().build();
     }

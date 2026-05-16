@@ -22,6 +22,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import senac.tsi.games.entities.Platform;
 import senac.tsi.games.exceptions.PlatformNotFoundException;
+import senac.tsi.games.exceptions.SearchResultNotFoundException;
 import senac.tsi.games.repositories.PlatformRepository;
 
 import java.net.URI;
@@ -60,6 +61,9 @@ public class PlatformController {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<PagedModel<EntityModel<Platform>>> getPlatforms(@ParameterObject Pageable pageable) {
         var page = platformRepository.findAll(pageable);
+        if (page.isEmpty()) {
+            throw new SearchResultNotFoundException("Nenhuma plataforma encontrada para a página informada.");
+        }
         PagedModel<EntityModel<Platform>> model = pagedAssembler.toModel(page,
                 platform -> EntityModel.of(platform,
                         linkTo(methodOn(PlatformController.class).getPlatformById(platform.getId())).withSelfRel(),
@@ -100,6 +104,9 @@ public class PlatformController {
             @RequestParam String name,
             @ParameterObject Pageable pageable) {
         var page = platformRepository.findByNameContainingIgnoreCase(name, pageable);
+        if (page.isEmpty()) {
+            throw new SearchResultNotFoundException("Nenhuma plataforma encontrada para o nome " + name + " na página informada.");
+        }
         return ResponseEntity.ok(pagedAssembler.toModel(page,
                 platform -> EntityModel.of(platform,
                         linkTo(methodOn(PlatformController.class).getPlatformById(platform.getId())).withSelfRel(),
@@ -125,7 +132,7 @@ public class PlatformController {
             @Valid @RequestBody Platform newPlatform) {
 
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            return ResponseEntity.badRequest().build();
+            throw new IllegalArgumentException("X-Idempotency-Key header é obrigatório.");
         }
 
         var requestFingerprint = new CreatePlatformFingerprint(newPlatform.getName());
@@ -181,7 +188,7 @@ public class PlatformController {
             @Parameter(description = "ID da plataforma", example = "1", required = true)
             @PathVariable Long id) {
         var platform = platformRepository.findById(id).orElse(null);
-        if (platform == null) return ResponseEntity.notFound().build();
+        if (platform == null) throw new PlatformNotFoundException(id);
         platformRepository.deleteById(id);
         return ResponseEntity.noContent().build();
     }

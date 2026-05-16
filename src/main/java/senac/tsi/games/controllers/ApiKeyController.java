@@ -34,6 +34,7 @@ import senac.tsi.games.entities.ApiKey;
 import senac.tsi.games.entities.ApiKeyRole;
 import senac.tsi.games.entities.User;
 import senac.tsi.games.exceptions.ApiKeyNotFoundException;
+import senac.tsi.games.exceptions.SearchResultNotFoundException;
 import senac.tsi.games.exceptions.UserNotFoundException;
 import senac.tsi.games.repositories.ApiKeyRepository;
 import senac.tsi.games.repositories.UserRepository;
@@ -78,13 +79,6 @@ public class ApiKeyController {
     ) {
     }
 
-    public record GenerateRandomApiKeyRequest(
-            @NotBlank @Size(max = 80) String label,
-            ApiKeyRole role,
-            @NotNull Long userId
-    ) {
-    }
-
     public record UpdateApiKeyRequest(
             @NotBlank @Size(max = 80) String label,
             @NotNull ApiKeyRole role,
@@ -109,6 +103,9 @@ public class ApiKeyController {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<PagedModel<EntityModel<ApiKey>>> getApiKeys(@ParameterObject Pageable pageable) {
         var page = apiKeyRepository.findAll(pageable);
+        if (page.isEmpty()) {
+            throw new SearchResultNotFoundException("Nenhuma chave de API encontrada para a página informada.");
+        }
         return ResponseEntity.ok(pagedAssembler.toModel(page, this::toModel));
     }
 
@@ -140,6 +137,9 @@ public class ApiKeyController {
             @RequestParam String label,
             @ParameterObject Pageable pageable) {
         var page = apiKeyRepository.findByLabelContainingIgnoreCase(label, pageable);
+        if (page.isEmpty()) {
+            throw new SearchResultNotFoundException("Nenhuma chave de API encontrada para o rótulo " + label + " na página informada.");
+        }
         return ResponseEntity.ok(pagedAssembler.toModel(page, this::toModel));
     }
 
@@ -158,10 +158,13 @@ public class ApiKeyController {
             @ParameterObject Pageable pageable) {
         userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException(userId));
         var page = apiKeyRepository.findByUserId(userId, pageable);
+        if (page.isEmpty()) {
+            throw new SearchResultNotFoundException("Nenhuma chave de API encontrada para o usuário " + userId + " na página informada.");
+        }
         return ResponseEntity.ok(pagedAssembler.toModel(page, this::toModel));
     }
 
-    @Operation(summary = "Gerar chave aleatória de API", description = "Gera uma chave aleatória ativa para um User existente. O campo keyValue retornado deve ser enviado no header X-API-Key. Requer uma X-API-Key ADMIN e X-Idempotency-Key.", security = @SecurityRequirement(name = "ApiKeyAuth"))
+    @Operation(summary = "Criar chave de API", description = "Cria uma chave ativa para um User existente. A API gera automaticamente o valor da chave em keyValue. Esse valor deve ser enviado no header X-API-Key. Requer X-API-Key ADMIN e X-Idempotency-Key.", security = @SecurityRequirement(name = "ApiKeyAuth"))
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Chave criada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiKey.class), examples = @ExampleObject(value = """
                     {
@@ -182,31 +185,6 @@ public class ApiKeyController {
             @RequestHeader("X-Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody CreateApiKeyRequest request) {
         return createApiKey(idempotencyKey, request.label(), request.role(), request.userId());
-    }
-
-    @Operation(summary = "Gerar chave aleatória - endpoint explícito", description = "Endpoint dedicado para gerar uma API Key aleatória. Use uma chave ADMIN no header X-API-Key. A nova chave vem no campo keyValue e também deve ser usada no header X-API-Key. Se role não for enviado, a chave será criada como ADMIN.", security = @SecurityRequirement(name = "ApiKeyAuth"))
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "201", description = "Chave aleatória criada com sucesso", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiKey.class), examples = @ExampleObject(value = """
-                    {
-                      "label": "Chave da apresentação",
-                      "role": "ADMIN",
-                      "userId": 1
-                    }"""))),
-            @ApiResponse(responseCode = "400", description = "Dados inválidos ou X-Idempotency-Key ausente"),
-            @ApiResponse(responseCode = "401", description = "Header X-API-Key ausente"),
-            @ApiResponse(responseCode = "403", description = "X-API-Key inválida, inativa ou sem permissão ADMIN"),
-            @ApiResponse(responseCode = "404", description = "Usuário não encontrado"),
-            @ApiResponse(responseCode = "409", description = "Mesma X-Idempotency-Key usada com payload diferente"),
-            @ApiResponse(responseCode = "429", description = "Limite de requisições excedido")
-    })
-    @PostMapping("/api-keys/random")
-    @ResponseStatus(HttpStatus.CREATED)
-    public ResponseEntity<EntityModel<ApiKey>> generateRandomApiKey(
-            @Parameter(description = "Chave única para garantir idempotência", required = true)
-            @RequestHeader("X-Idempotency-Key") String idempotencyKey,
-            @Valid @RequestBody GenerateRandomApiKeyRequest request) {
-        ApiKeyRole role = request.role() == null ? ApiKeyRole.ADMIN : request.role();
-        return createApiKey(idempotencyKey, request.label(), role, request.userId());
     }
 
     @Operation(summary = "Gerar chave de API para um usuário", description = "Cria uma chave ativa usando o ID do usuário na rota. Mantém a navegação User -> ApiKeys. Requer chave ADMIN e X-Idempotency-Key.", security = @SecurityRequirement(name = "ApiKeyAuth"))

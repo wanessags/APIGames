@@ -21,6 +21,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import senac.tsi.games.entities.User;
+import senac.tsi.games.exceptions.SearchResultNotFoundException;
 import senac.tsi.games.exceptions.UserNotFoundException;
 import senac.tsi.games.repositories.UserRepository;
 
@@ -60,6 +61,9 @@ public class UserController {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<PagedModel<EntityModel<User>>> getUsers(@ParameterObject Pageable pageable) {
         var page = userRepository.findAll(pageable);
+        if (page.isEmpty()) {
+            throw new SearchResultNotFoundException("Nenhum usuário encontrado para a página informada.");
+        }
         PagedModel<EntityModel<User>> model = pagedAssembler.toModel(page,
                 user -> EntityModel.of(user,
                         linkTo(methodOn(UserController.class).getUserById(user.getId())).withSelfRel(),
@@ -100,6 +104,9 @@ public class UserController {
             @RequestParam String email,
             @ParameterObject Pageable pageable) {
         var page = userRepository.findByEmailContainingIgnoreCase(email, pageable);
+        if (page.isEmpty()) {
+            throw new SearchResultNotFoundException("Nenhum usuário encontrado para o email " + email + " na página informada.");
+        }
         return ResponseEntity.ok(pagedAssembler.toModel(page,
                 user -> EntityModel.of(user,
                         linkTo(methodOn(UserController.class).getUserById(user.getId())).withSelfRel(),
@@ -125,7 +132,7 @@ public class UserController {
             @Valid @RequestBody User newUser) {
 
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            return ResponseEntity.badRequest().build();
+            throw new IllegalArgumentException("X-Idempotency-Key header é obrigatório.");
         }
 
         var requestFingerprint = new CreateUserFingerprint(newUser.getName(), newUser.getEmail());
@@ -181,7 +188,7 @@ public class UserController {
             @Parameter(description = "ID do usuário", example = "1", required = true)
             @PathVariable Long id) {
         var user = userRepository.findById(id).orElse(null);
-        if (user == null) return ResponseEntity.notFound().build();
+        if (user == null) throw new UserNotFoundException(id);
         userRepository.deleteById(id);
         return ResponseEntity.noContent().build();
     }

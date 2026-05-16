@@ -18,6 +18,7 @@ import senac.tsi.games.exceptions.GameDetailNotFoundException;
 import senac.tsi.games.exceptions.GameNotFoundException;
 import senac.tsi.games.exceptions.PlatformNotFoundException;
 import senac.tsi.games.exceptions.ReviewNotFoundException;
+import senac.tsi.games.exceptions.SearchResultNotFoundException;
 import senac.tsi.games.exceptions.UserNotFoundException;
 
 import java.time.Instant;
@@ -34,6 +35,7 @@ public class GlobalExceptionHandler {
             GameNotFoundException.class,
             PlatformNotFoundException.class,
             ReviewNotFoundException.class,
+            SearchResultNotFoundException.class,
             UserNotFoundException.class
     })
     public ResponseEntity<ApiError> handleNotFound(RuntimeException ex, HttpServletRequest request) {

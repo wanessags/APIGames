@@ -24,6 +24,7 @@ import senac.tsi.games.entities.Game;
 import senac.tsi.games.entities.GameDetail;
 import senac.tsi.games.exceptions.GameDetailNotFoundException;
 import senac.tsi.games.exceptions.GameNotFoundException;
+import senac.tsi.games.exceptions.SearchResultNotFoundException;
 import senac.tsi.games.repositories.GameDetailRepository;
 import senac.tsi.games.repositories.GameRepository;
 
@@ -66,6 +67,9 @@ public class GameDetailController {
     @ResponseStatus(HttpStatus.OK)
     public ResponseEntity<PagedModel<EntityModel<GameDetail>>> getGameDetails(@ParameterObject Pageable pageable) {
         var page = gameDetailRepository.findAll(pageable);
+        if (page.isEmpty()) {
+            throw new SearchResultNotFoundException("Nenhum detalhe de jogo encontrado para a página informada.");
+        }
         PagedModel<EntityModel<GameDetail>> model = pagedAssembler.toModel(page,
                 detail -> EntityModel.of(detail,
                         linkTo(methodOn(GameDetailController.class).getGameDetailById(detail.getId())).withSelfRel(),
@@ -139,7 +143,7 @@ public class GameDetailController {
             @Valid @RequestBody GameDetail newDetail) {
 
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            return ResponseEntity.badRequest().build();
+            throw new IllegalArgumentException("X-Idempotency-Key header é obrigatório.");
         }
 
         Long gameId = getGameId(newDetail);
@@ -209,7 +213,7 @@ public class GameDetailController {
             @Parameter(description = "ID do detalhe", example = "1", required = true)
             @PathVariable Long id) {
         GameDetail detail = gameDetailRepository.findById(id).orElse(null);
-        if (detail == null) return ResponseEntity.notFound().build();
+        if (detail == null) throw new GameDetailNotFoundException(id);
         gameDetailRepository.deleteById(id);
         return ResponseEntity.noContent().build();
     }
