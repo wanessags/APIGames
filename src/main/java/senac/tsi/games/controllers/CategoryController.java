@@ -13,6 +13,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PagedResourcesAssembler;
 import org.springframework.hateoas.EntityModel;
@@ -151,6 +152,10 @@ public class CategoryController {
                 }
             }
 
+            if (categoryRepository.existsByType(newCategory.getType())) {
+                throw new DataIntegrityViolationException("Categoria " + newCategory.getType() + " já existe.");
+            }
+
             var saved = categoryRepository.save(newCategory);
             var location = URI.create("/categories/" + saved.getId());
             createCategoryResponses.put(idempotencyKey, new IdempotentCreateResponse(requestFingerprint, saved, location));
@@ -174,6 +179,9 @@ public class CategoryController {
                             examples = @ExampleObject(value = "{ \"type\": \"ACTION\" }")))
             @Valid @RequestBody Category updatedCategory) {
         return categoryRepository.findById(id).map(category -> {
+            if (!category.getType().equals(updatedCategory.getType()) && categoryRepository.existsByType(updatedCategory.getType())) {
+                throw new DataIntegrityViolationException("Categoria " + updatedCategory.getType() + " já existe.");
+            }
             category.setType(updatedCategory.getType());
             return ResponseEntity.ok(categoryRepository.save(category));
         }).orElseThrow(() -> new CategoryNotFoundException(id));

@@ -11,4 +11,6 @@ import senac.tsi.games.entities.CategoryType;
 public interface CategoryRepository extends JpaRepository<Category, Long> {
 
     Page<Category> findByType(CategoryType type, Pageable pageable);
+
+    boolean existsByType(CategoryType type);
 }
