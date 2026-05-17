@@ -145,44 +145,58 @@ public class OpenApiConfig {
     }
 
     private void addRateLimitIfMissing(Operation operation) {
-        if (!operation.getResponses().containsKey("429")) {
-            operation.getResponses().addApiResponse("429", new ApiResponse()
-                    .description("Muitas requisições. O limite de 8 requisições por minuto foi excedido; aguarde 60 segundos para tentar novamente.")
-                    .addHeaderObject("Retry-After", new Header()
-                            .description("Quantidade de segundos que o cliente deve aguardar antes de tentar novamente.")
-                            .schema(new IntegerSchema().example(60)))
-                    .addHeaderObject("X-RateLimit-Limit", new Header()
-                            .description("Limite máximo de requisições por minuto.")
-                            .schema(new IntegerSchema().example(8)))
-                    .addHeaderObject("X-RateLimit-Remaining", new Header()
-                            .description("Quantidade de requisições restantes na janela atual.")
-                            .schema(new IntegerSchema().example(0)))
-                    .content(new Content().addMediaType("application/json", new MediaType()
-                            .schema(new Schema<Map<String, Object>>()
-                                    .type("object")
-                                    .example(Map.of(
-                                            "status", 429,
-                                            "error", "Too Many Requests",
-                                            "message", "Limite de 8 requisições por minuto excedido. Tente novamente em 60 segundos.",
-                                            "retryAfter", 60))))));
+        ApiResponse response = operation.getResponses().computeIfAbsent("429", code -> new ApiResponse());
+        if (response.getDescription() == null || response.getDescription().isBlank()) {
+            response.description("Muitas requisições. O limite de 8 requisições por minuto foi excedido; aguarde 60 segundos para tentar novamente.");
         }
+        response.addHeaderObject("Retry-After", new Header()
+                .description("Quantidade de segundos que o cliente deve aguardar antes de tentar novamente.")
+                .schema(new IntegerSchema().example(60)));
+        response.addHeaderObject("X-RateLimit-Limit", new Header()
+                .description("Limite máximo de requisições por minuto.")
+                .schema(new IntegerSchema().example(8)));
+        response.addHeaderObject("X-RateLimit-Remaining", new Header()
+                .description("Quantidade de requisições restantes na janela atual.")
+                .schema(new IntegerSchema().example(0)));
+        response.content(new Content().addMediaType("application/json", new MediaType()
+                .schema(new Schema<Map<String, Object>>()
+                        .type("object")
+                        .example(Map.of(
+                                "status", 429,
+                                "error", "Too Many Requests",
+                                "message", "Limite de 8 requisições por minuto excedido. Tente novamente em 60 segundos.",
+                                "retryAfter", 60)))));
     }
 
     private void addErrorResponseIfMissing(Operation operation, String code, String description) {
-        if (!operation.getResponses().containsKey(code)) {
-            int status = Integer.parseInt(code);
-            operation.getResponses().addApiResponse(code, new ApiResponse()
-                    .description(description)
-                    .content(new Content().addMediaType("application/json", new MediaType()
-                            .schema(new Schema<ApiError>()
-                                    .example(Map.of(
-                                            "timestamp", "2026-05-15T12:00:00Z",
-                                            "status", status,
-                                            "error", description,
-                                            "message", description,
-                                            "path", "/games/999",
-                                            "fields", Map.of()))))));
+        int status = Integer.parseInt(code);
+        ApiResponse response = operation.getResponses().computeIfAbsent(code, value -> new ApiResponse());
+
+        if (response.getDescription() == null || response.getDescription().isBlank()) {
+            response.description(description);
         }
+
+        response.content(new Content().addMediaType("application/json", new MediaType()
+                .schema(new Schema<ApiError>()
+                        .example(Map.of(
+                                "timestamp", "2026-05-17T12:00:00Z",
+                                "status", status,
+                                "error", reasonPhrase(status),
+                                "message", description,
+                                "path", "/games/999",
+                                "fields", Map.of())))));
+    }
+
+    private String reasonPhrase(int status) {
+        return switch (status) {
+            case 400 -> "Bad Request";
+            case 401 -> "Unauthorized";
+            case 403 -> "Forbidden";
+            case 404 -> "Not Found";
+            case 409 -> "Conflict";
+            case 429 -> "Too Many Requests";
+            default -> "Error";
+        };
     }
 
     private void addResponseIfMissing(Operation operation, String code, String description) {
