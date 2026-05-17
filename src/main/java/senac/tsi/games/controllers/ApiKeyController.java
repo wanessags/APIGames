@@ -34,6 +34,7 @@ import senac.tsi.games.entities.ApiKey;
 import senac.tsi.games.entities.ApiKeyRole;
 import senac.tsi.games.entities.User;
 import senac.tsi.games.exceptions.ApiKeyNotFoundException;
+import senac.tsi.games.exceptions.ConflictException;
 import senac.tsi.games.exceptions.SearchResultNotFoundException;
 import senac.tsi.games.exceptions.UserNotFoundException;
 import senac.tsi.games.repositories.ApiKeyRepository;
@@ -267,7 +268,7 @@ public class ApiKeyController {
                 if (existing.requestFingerprint().equals(requestFingerprint)) {
                     return ResponseEntity.created(existing.location()).body(toModel(existing.apiKey()));
                 }
-                return ResponseEntity.status(HttpStatus.CONFLICT).build();
+                throw new ConflictException("X-Idempotency-Key já utilizada com payload diferente.");
             }
 
             User user = userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException(userId));

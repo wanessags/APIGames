@@ -13,7 +13,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PagedResourcesAssembler;
 import org.springframework.hateoas.EntityModel;
@@ -24,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 import senac.tsi.games.entities.Category;
 import senac.tsi.games.entities.CategoryType;
 import senac.tsi.games.exceptions.CategoryNotFoundException;
+import senac.tsi.games.exceptions.ConflictException;
 import senac.tsi.games.exceptions.SearchResultNotFoundException;
 import senac.tsi.games.repositories.CategoryRepository;
 
@@ -148,12 +148,12 @@ public class CategoryController {
                 if (existing.requestFingerprint().equals(requestFingerprint)) {
                     return ResponseEntity.created(existing.location()).body(existing.category());
                 } else {
-                    return ResponseEntity.status(HttpStatus.CONFLICT).build();
+                    throw new ConflictException("X-Idempotency-Key já utilizada com payload diferente.");
                 }
             }
 
             if (categoryRepository.existsByType(newCategory.getType())) {
-                throw new DataIntegrityViolationException("Categoria " + newCategory.getType() + " já existe.");
+                throw new ConflictException("Categoria " + newCategory.getType() + " já existe.");
             }
 
             var saved = categoryRepository.save(newCategory);
@@ -180,7 +180,7 @@ public class CategoryController {
             @Valid @RequestBody Category updatedCategory) {
         return categoryRepository.findById(id).map(category -> {
             if (!category.getType().equals(updatedCategory.getType()) && categoryRepository.existsByType(updatedCategory.getType())) {
-                throw new DataIntegrityViolationException("Categoria " + updatedCategory.getType() + " já existe.");
+                throw new ConflictException("Categoria " + updatedCategory.getType() + " já existe.");
             }
             category.setType(updatedCategory.getType());
             return ResponseEntity.ok(categoryRepository.save(category));

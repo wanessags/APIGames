@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 import senac.tsi.games.entities.Game;
 import senac.tsi.games.entities.Review;
 import senac.tsi.games.entities.User;
+import senac.tsi.games.exceptions.ConflictException;
 import senac.tsi.games.exceptions.GameNotFoundException;
 import senac.tsi.games.exceptions.ReviewNotFoundException;
 import senac.tsi.games.exceptions.SearchResultNotFoundException;
@@ -192,7 +193,7 @@ public class ReviewController {
                 if (existing.requestFingerprint().equals(requestFingerprint)) {
                     return ResponseEntity.created(existing.location()).body(existing.review());
                 } else {
-                    return ResponseEntity.status(HttpStatus.CONFLICT).build();
+                    throw new ConflictException("X-Idempotency-Key já utilizada com payload diferente.");
                 }
             }
 

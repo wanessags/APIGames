@@ -22,6 +22,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import senac.tsi.games.entities.Game;
 import senac.tsi.games.entities.GameDetail;
+import senac.tsi.games.exceptions.ConflictException;
 import senac.tsi.games.exceptions.GameDetailNotFoundException;
 import senac.tsi.games.exceptions.GameNotFoundException;
 import senac.tsi.games.exceptions.SearchResultNotFoundException;
@@ -161,7 +162,7 @@ public class GameDetailController {
                 if (existing.requestFingerprint().equals(requestFingerprint)) {
                     return ResponseEntity.created(existing.location()).body(existing.detail());
                 } else {
-                    return ResponseEntity.status(HttpStatus.CONFLICT).build();
+                    throw new ConflictException("X-Idempotency-Key já utilizada com payload diferente.");
                 }
             }
 

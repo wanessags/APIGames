@@ -6,14 +6,17 @@ import org.springframework.core.convert.ConversionFailedException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import senac.tsi.games.exceptions.ApiKeyNotFoundException;
 import senac.tsi.games.exceptions.CategoryNotFoundException;
+import senac.tsi.games.exceptions.ConflictException;
 import senac.tsi.games.exceptions.GameDetailNotFoundException;
 import senac.tsi.games.exceptions.GameNotFoundException;
 import senac.tsi.games.exceptions.PlatformNotFoundException;
@@ -42,6 +45,11 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.NOT_FOUND, ex.getMessage(), request, Map.of());
     }
 
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ApiError> handleConflict(ConflictException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, ex.getMessage(), request, Map.of());
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex, HttpServletRequest request) {
         Map<String, String> fields = new LinkedHashMap<>();
@@ -60,12 +68,14 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({
             ConversionFailedException.class,
+            HttpMessageConversionException.class,
             HttpMessageNotReadableException.class,
+            MethodArgumentTypeMismatchException.class,
             MissingRequestHeaderException.class,
             MissingServletRequestParameterException.class
     })
     public ResponseEntity<ApiError> handleBadRequest(Exception ex, HttpServletRequest request) {
-        return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request, Map.of());
+        return build(HttpStatus.BAD_REQUEST, buildBadRequestMessage(ex), request, Map.of());
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
@@ -83,6 +93,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(Exception ex, HttpServletRequest request) {
+        String message = rootMessage(ex);
+        if (message.contains("CategoryType") || message.contains("Cannot deserialize value of type") || message.contains("No enum constant")) {
+            return build(HttpStatus.BAD_REQUEST, buildBadRequestMessage(ex), request, Map.of());
+        }
         return build(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao processar a requisição.", request, Map.of());
     }
 
@@ -96,5 +110,32 @@ public class GlobalExceptionHandler {
                 fields
         );
         return ResponseEntity.status(status).body(error);
+    }
+
+    private String buildBadRequestMessage(Exception ex) {
+        String message = rootMessage(ex);
+
+        if (message != null && message.contains("CategoryType")) {
+            return "Tipo de categoria inválido. Use: RPG, ACTION, ADVENTURE, SPORTS ou STRATEGY.";
+        }
+
+        if (ex instanceof MethodArgumentTypeMismatchException mismatch && mismatch.getRequiredType() != null && mismatch.getRequiredType().isEnum()) {
+            Object[] values = mismatch.getRequiredType().getEnumConstants();
+            return "Valor inválido para " + mismatch.getName() + ". Use: " + java.util.Arrays.toString(values) + ".";
+        }
+
+        if (message == null || message.isBlank()) {
+            return "Requisição inválida. Verifique os dados enviados.";
+        }
+
+        return message;
+    }
+
+    private String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current.getMessage() == null ? "" : current.getMessage();
     }
 }

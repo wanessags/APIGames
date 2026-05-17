@@ -21,6 +21,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import senac.tsi.games.entities.User;
+import senac.tsi.games.exceptions.ConflictException;
 import senac.tsi.games.exceptions.SearchResultNotFoundException;
 import senac.tsi.games.exceptions.UserNotFoundException;
 import senac.tsi.games.repositories.UserRepository;
@@ -144,7 +145,7 @@ public class UserController {
                 if (existing.requestFingerprint().equals(requestFingerprint)) {
                     return ResponseEntity.created(existing.location()).body(existing.user());
                 } else {
-                    return ResponseEntity.status(HttpStatus.CONFLICT).build();
+                    throw new ConflictException("X-Idempotency-Key já utilizada com payload diferente.");
                 }
             }
 
