@@ -30,7 +30,7 @@ public class ApiKeyInterceptor implements HandlerInterceptor {
 
         String apiKey = request.getHeader(API_KEY_HEADER);
         if (apiKey == null || apiKey.isBlank()) {
-            writeError(response, HttpStatus.UNAUTHORIZED, "Header X-API-Key é obrigatório para esta operação.");
+            writeError(request, response, HttpStatus.UNAUTHORIZED, "Header X-API-Key é obrigatório para esta operação.");
             return false;
         }
 
@@ -39,7 +39,7 @@ public class ApiKeyInterceptor implements HandlerInterceptor {
                     ApiKeyRole requiredRole = requiredRole(request);
                     if (!hasAccess(validKey.getRole(), requiredRole)) {
                         try {
-                            writeError(response, HttpStatus.FORBIDDEN, "X-API-Key sem permissão para esta operação. Nível exigido: " + requiredRole + ".");
+                            writeError(request, response, HttpStatus.FORBIDDEN, "X-API-Key sem permissão para esta operação. Nível exigido: " + requiredRole + ".");
                         } catch (IOException ex) {
                             throw new IllegalStateException(ex);
                         }
@@ -49,7 +49,7 @@ public class ApiKeyInterceptor implements HandlerInterceptor {
                 })
                 .orElseGet(() -> {
                     try {
-                        writeError(response, HttpStatus.FORBIDDEN, "X-API-Key inválida ou inativa.");
+                        writeError(request, response, HttpStatus.FORBIDDEN, "X-API-Key inválida ou inativa.");
                     } catch (IOException ex) {
                         throw new IllegalStateException(ex);
                     }
@@ -105,7 +105,8 @@ public class ApiKeyInterceptor implements HandlerInterceptor {
         return currentRole == ApiKeyRole.READ && requiredRole == ApiKeyRole.READ;
     }
 
-    private void writeError(HttpServletResponse response, HttpStatus status, String message) throws IOException {
+    private void writeError(HttpServletRequest request, HttpServletResponse response, HttpStatus status, String message) throws IOException {
+        addCorsHeaders(request, response);
         response.setStatus(status.value());
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
@@ -116,5 +117,27 @@ public class ApiKeyInterceptor implements HandlerInterceptor {
                   "message": "%s"
                 }
                 """.formatted(status.value(), status.getReasonPhrase(), message));
+    }
+
+    private void addCorsHeaders(HttpServletRequest request, HttpServletResponse response) {
+        String origin = request.getHeader("Origin");
+        response.setHeader("Access-Control-Allow-Origin", allowedOrigin(origin));
+        response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+        response.setHeader("Access-Control-Allow-Headers", "Content-Type,X-API-Key,X-Idempotency-Key,X-API-Version,Accept");
+        response.setHeader("Access-Control-Expose-Headers", "Location,Retry-After,X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset");
+    }
+
+    private String allowedOrigin(String origin) {
+        if (origin == null || origin.isBlank()) {
+            return "https://apigames-kpkn.onrender.com";
+        }
+        if (origin.equals("https://apigames-kpkn.onrender.com")
+                || origin.equals("http://localhost:8080")
+                || origin.equals("http://localhost:3000")
+                || origin.equals("http://localhost:5173")
+                || origin.equals("http://127.0.0.1:5500")) {
+            return origin;
+        }
+        return "https://apigames-kpkn.onrender.com";
     }
 }

@@ -59,6 +59,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         response.setHeader("X-RateLimit-Reset", String.valueOf(resetAt / 1000));
 
         if (blocked) {
+            addCorsHeaders(request, response);
             response.setHeader("Retry-After", String.valueOf(retryAfterSeconds));
             response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
             response.setCharacterEncoding("UTF-8");
@@ -114,5 +115,27 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             return "ip:" + forwarded.split(",")[0].trim();
         }
         return "ip:" + request.getRemoteAddr();
+    }
+
+    private void addCorsHeaders(HttpServletRequest request, HttpServletResponse response) {
+        String origin = request.getHeader("Origin");
+        response.setHeader("Access-Control-Allow-Origin", allowedOrigin(origin));
+        response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+        response.setHeader("Access-Control-Allow-Headers", "Content-Type,X-API-Key,X-Idempotency-Key,X-API-Version,Accept");
+        response.setHeader("Access-Control-Expose-Headers", "Location,Retry-After,X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset");
+    }
+
+    private String allowedOrigin(String origin) {
+        if (origin == null || origin.isBlank()) {
+            return "https://apigames-kpkn.onrender.com";
+        }
+        if (origin.equals("https://apigames-kpkn.onrender.com")
+                || origin.equals("http://localhost:8080")
+                || origin.equals("http://localhost:3000")
+                || origin.equals("http://localhost:5173")
+                || origin.equals("http://127.0.0.1:5500")) {
+            return origin;
+        }
+        return "https://apigames-kpkn.onrender.com";
     }
 }
